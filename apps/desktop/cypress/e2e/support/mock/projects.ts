@@ -17,7 +17,8 @@ export const MOCK_PROJECT_A: Project = {
 	forge_override: undefined,
 	preferred_forge_user: null,
 	gerrit_mode: false,
-	forge_review_template_path: null
+	forge_review_template_path: null,
+	fork_mode: 'contribute_to_parent'
 };
 
 export function createMockProject(id: string, title: string, path: string): Project {

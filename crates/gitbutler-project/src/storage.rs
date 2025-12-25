@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{Context as _, Result};
 use serde::Deserialize;
 
-use crate::{ApiProject, AuthKey, CodePushState, FetchResult, Project, ProjectId};
+use crate::{ApiProject, AuthKey, CodePushState, FetchResult, ForkMode, Project, ProjectId};
 
 const PROJECTS_FILE: &str = "projects.json";
 
@@ -35,6 +35,7 @@ pub struct UpdateRequest {
     #[serde(default = "default_false")]
     pub unset_forge_override: bool,
     pub preferred_forge_user: Option<but_forge::ForgeUser>,
+    pub fork_mode: Option<ForkMode>,
 }
 
 impl UpdateRequest {
@@ -60,6 +61,7 @@ impl UpdateRequest {
             forge_override: None,
             unset_forge_override: false,
             preferred_forge_user: None,
+            fork_mode: None,
         }
     }
 }
@@ -83,6 +85,7 @@ impl From<Project> for UpdateRequest {
             snapshot_lines_threshold,
             forge_override,
             preferred_forge_user,
+            fork_mode,
         }: Project,
     ) -> Self {
         UpdateRequest {
@@ -105,6 +108,7 @@ impl From<Project> for UpdateRequest {
             forge_override,
             unset_forge_override: false,
             preferred_forge_user,
+            fork_mode: Some(fork_mode),
         }
     }
 }
@@ -176,6 +180,7 @@ impl Storage {
             forge_override,
             unset_forge_override,
             preferred_forge_user,
+            fork_mode,
         }: UpdateRequest,
     ) -> Result<Project> {
         let mut projects = self.list()?;
@@ -250,6 +255,10 @@ impl Storage {
 
         if let Some(snapshot_lines_threshold) = snapshot_lines_threshold {
             project.snapshot_lines_threshold = Some(snapshot_lines_threshold);
+        }
+
+        if let Some(fork_mode) = fork_mode {
+            project.fork_mode = fork_mode;
         }
 
         self.inner

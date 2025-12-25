@@ -122,7 +122,8 @@
 			githubError: githubAccessToken.error.current,
 			gitlabAuthenticated: !!$gitlabConfigured,
 			detectedForgeProvider: baseBranch?.forgeRepoInfo?.forge ?? undefined,
-			forgeOverride: projects?.find((project) => project.id === projectId)?.forge_override
+			forgeOverride: currentProject?.forge_override,
+			forkMode: currentProject?.fork_mode
 		});
 	});
 

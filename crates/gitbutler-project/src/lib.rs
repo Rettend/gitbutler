@@ -9,7 +9,8 @@ use std::path::Path;
 
 use controller::Controller;
 pub use project::{
-    AddProjectOutcome, ApiProject, AuthKey, CodePushState, FetchResult, Project, ProjectId,
+    AddProjectOutcome, ApiProject, AuthKey, CodePushState, FetchResult, ForkMode, Project,
+    ProjectId,
 };
 pub use storage::UpdateRequest;
 
