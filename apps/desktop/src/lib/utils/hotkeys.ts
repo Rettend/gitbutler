@@ -65,6 +65,13 @@ export const shortcuts = {
 			description: 'Opens the project history view. Revert changes, view commits, and more.',
 			keys: '$mod+Shift+H'
 		}
+	},
+	file: {
+		open_in_editor: {
+			title: 'Open in editor',
+			description: 'Opens the project folder in the configured code editor.',
+			keys: '$mod+Shift+A'
+		}
 	}
 };
 

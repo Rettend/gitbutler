@@ -30,4 +30,16 @@ export class ShortcutService {
 			);
 		};
 	}
+
+	/**
+	 * Emit a shortcut event to all registered listeners.
+	 * This is used as a workaround for Windows.
+	 */
+	emit(shortcut: string) {
+		for (const listener of this.listeners) {
+			if (listener[0] === shortcut) {
+				listener[1]();
+			}
+		}
+	}
 }

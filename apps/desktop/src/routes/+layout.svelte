@@ -16,6 +16,7 @@
 	import SwitchThemeMenuAction from '$components/SwitchThemeMenuAction.svelte';
 	import ToastController from '$components/ToastController.svelte';
 	import ToggleSidebarMenuAction from '$components/ToggleSidebarMenuAction.svelte';
+	import WindowsShortcutWorkaround from '$components/WindowsShortcutWorkaround.svelte';
 	import ZoomInOutMenuAction from '$components/ZoomInOutMenuAction.svelte';
 	import { POSTHOG_WRAPPER } from '$lib/analytics/posthog';
 	import { initDependencies } from '$lib/bootstrap/deps';
@@ -187,6 +188,7 @@
 <ToggleSidebarMenuAction />
 <GlobalModal />
 <FocusCursor />
+<WindowsShortcutWorkaround />
 
 {#if import.meta.env.MODE === 'development'}
 	<ReloadWarning />
