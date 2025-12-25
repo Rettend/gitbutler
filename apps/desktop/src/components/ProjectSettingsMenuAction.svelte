@@ -23,8 +23,17 @@
 	const fileService = inject(FILE_SERVICE);
 	const baseBranchService = inject(BASE_BRANCH_SERVICE);
 
+	// Get both upstream and fork repo info
 	const repoInfoQuery = $derived(baseBranchService.repo(projectId));
+	const pushRepoInfoQuery = $derived(baseBranchService.pushRepo(projectId));
 	const repoInfo = $derived(repoInfoQuery.response);
+	const pushRepoInfo = $derived(pushRepoInfoQuery.response);
+
+	// Get project to access fork_mode
+	const projectQuery = $derived(projectsService.getProject(projectId));
+	const project = $derived(
+		projectQuery.result.status === 'fulfilled' ? projectQuery.result.data : undefined
+	);
 
 	$effect(() =>
 		mergeUnlisten(
@@ -56,11 +65,17 @@
 				await fileService.showFileInFolder(project.path);
 			}),
 			shortcutService.on('open-on-github', () => {
-				if (!repoInfo) {
+				// Determine which repo to open based on fork mode
+				// If fork mode is "own_purposes" and we have a push repo, use the push repo (fork)
+				// Otherwise, use the upstream repo
+				const useOwnRepo = project?.fork_mode === 'own_purposes' && pushRepoInfo;
+				const targetRepo = useOwnRepo ? pushRepoInfo : repoInfo;
+
+				if (!targetRepo) {
 					console.error('Repo info not found for project:', projectId);
 					return;
 				}
-				const url = `https://${repoInfo.domain}/${repoInfo.owner}/${repoInfo.name}`;
+				const url = `https://${targetRepo.domain}/${targetRepo.owner}/${targetRepo.name}`;
 				urlService.openExternalUrl(url);
 			})
 		)

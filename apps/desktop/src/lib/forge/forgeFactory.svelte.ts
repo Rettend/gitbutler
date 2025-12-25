@@ -10,6 +10,7 @@ import type { PostHogWrapper } from '$lib/analytics/posthog';
 import type { ForgeProvider } from '$lib/baseBranch/baseBranch';
 import type { GitLabClient } from '$lib/forge/gitlab/gitlabClient.svelte';
 import type { Forge, ForgeName } from '$lib/forge/interface/forge';
+import type { ForkMode } from '$lib/project/project';
 import type { BackendApi, GitHubApi, GitLabApi } from '$lib/state/clientState.svelte';
 import type { ReduxTag } from '$lib/state/tags';
 import type { RepoInfo } from '$lib/url/gitUrl';
@@ -27,6 +28,8 @@ export type ForgeConfig = {
 	gitlabAuthenticated?: boolean;
 	detectedForgeProvider: ForgeProvider | undefined;
 	forgeOverride?: ForgeName;
+	/** Determines which repo to target for PRs and other operations */
+	forkMode?: ForkMode;
 };
 
 export const DEFAULT_FORGE_FACTORY = new InjectionToken<DefaultForgeFactory>('DefaultForgeFactory');
@@ -108,14 +111,25 @@ export class DefaultForgeFactory implements Reactive<Forge> {
 			githubError,
 			gitlabAuthenticated,
 			detectedForgeProvider,
-			forgeOverride
+			forgeOverride,
+			forkMode
 		} = config;
 		this._githubError = githubError;
-		if (repo && baseBranch) {
-			this._determinedForgeType = this.determineForgeType(repo, detectedForgeProvider);
+
+		// Determine the effective target repo based on fork mode
+		// When fork mode is 'own_purposes', PRs should target the push repo (fork)
+		// When fork mode is 'contribute_to_parent' (default), PRs target the upstream (repo)
+		const effectiveTargetRepo = forkMode === 'own_purposes' && pushRepo ? pushRepo : repo;
+
+		if (effectiveTargetRepo && baseBranch) {
+			this._determinedForgeType = this.determineForgeType(
+				effectiveTargetRepo,
+				detectedForgeProvider
+			);
 			this._forge = this.build({
-				repo,
-				pushRepo,
+				repo: effectiveTargetRepo,
+				// When targeting own repo, pushRepo should be undefined (no cross-fork PR)
+				pushRepo: forkMode === 'own_purposes' ? undefined : pushRepo,
 				baseBranch,
 				githubAuthenticated,
 				githubIsLoading,
