@@ -11,7 +11,16 @@ fi
 
 set -x
 cargo build --release -p gitbutler-git
-if [ "${OS:-}" == "windows" ]; then
+
+is_windows="false"
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*) is_windows="true" ;;
+esac
+if [ "${OS:-}" = "windows" ]; then
+  is_windows="true"
+fi
+
+if [ "$is_windows" = "true" ]; then
   # WARNING: should only run if the `builtin-but` feature is *not* selected in `release.sh`.
   #          Right now we just keep these scripts in sync to do the right thing, assuming it won't change.
   cargo build --release -p but

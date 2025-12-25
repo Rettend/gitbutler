@@ -25,6 +25,7 @@
 		"build": "turbo run build --no-daemon",
 		"build:desktop": "turbo run --filter @gitbutler/desktop build --no-daemon",
 		"build:test": "pnpm exec tauri build --config crates/gitbutler-tauri/tauri.conf.test.json -- --profile dev",
+		"build:nightly": "pnpm tauri build --features windows,devtools --config crates/gitbutler-tauri/tauri.conf.nightly.json",
 		"start:desktop": "pnpm --filter @gitbutler/desktop run preview",
 		"check": "turbo run check --no-daemon",
 		"tauri": "cross-env \"CARGO_TARGET_DIR=$PNPM_SCRIPT_SRC_DIR/target/tauri\" tauri",

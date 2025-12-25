@@ -75,16 +75,8 @@ jobs:
       - name: Build Tauri app
         shell: bash
         run: |
-          CHANNEL="${{ github.event.inputs.channel }}"
-          CONFIG_PATH="crates/gitbutler-tauri/tauri.conf.${CHANNEL}.json"
-
-          echo "Building with channel: $CHANNEL"
-          echo "Using config: $CONFIG_PATH"
-
-          # Build with devtools feature for debugging
-          pnpm tauri build \
-            --features "windows,devtools" \
-            --config "$CONFIG_PATH"
+          echo "Building nightly desktop app..."
+          pnpm build:nightly
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
