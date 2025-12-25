@@ -69,6 +69,22 @@ pub struct CodePushState {
     pub timestamp: time::SystemTime,
 }
 
+/// Determines how a forked repository is used.
+///
+/// This setting affects where pull requests are created, which repository
+/// "Open on GitHub" opens, and other fork-related behaviors.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum ForkMode {
+    /// PRs and operations target the upstream (parent) repository.
+    /// This is the default for "I cloned upstream and want to contribute back".
+    #[default]
+    ContributeToParent,
+    /// PRs and operations target the fork (push remote).
+    /// This is for "I'm using this fork for my own purposes".
+    OwnPurposes,
+}
+
 pub type ProjectId = but_core::Id<'P'>;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -122,6 +138,10 @@ pub struct Project {
         deserialize_with = "but_forge::deserialize_preferred_forge_user_opt"
     )]
     pub preferred_forge_user: Option<but_forge::ForgeUser>,
+    /// Determines how a forked repository should be used.
+    /// Affects PR creation target, "Open on GitHub", etc.
+    #[serde(default)]
+    pub fork_mode: ForkMode,
 }
 
 impl Project {
@@ -144,6 +164,7 @@ impl Project {
             snapshot_lines_threshold: None,
             forge_override: None,
             preferred_forge_user: None,
+            fork_mode: ForkMode::default(),
         }
     }
 
