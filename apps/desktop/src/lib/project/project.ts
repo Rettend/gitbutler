@@ -52,7 +52,6 @@ export type Project = {
 	forge_review_template_path: string | null;
 	/**
 	 * Determines how a forked repository should be used.
-	 * Affects PR creation target, "Open on GitHub", etc.
 	 */
 	fork_mode: ForkMode;
 };

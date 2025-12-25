@@ -98,7 +98,6 @@
 	// GitHub setup
 	$effect.pre(() => gitHubClient.setToken(githubAccessToken.accessToken.current));
 	$effect.pre(() => gitHubClient.setHost(githubAccessToken.host.current));
-	$effect.pre(() => gitHubClient.setRepo({ owner: repoInfo?.owner, repo: repoInfo?.name }));
 
 	// GitLab setup
 	const gitlabConfigured = $derived(gitLabState.configured);
@@ -111,11 +110,58 @@
 		};
 	});
 
+	// Get fork info from GitHub API
+	// This queries the current forge's repo. When forge targets parent, this returns the parent's info.
+	const forgeRepoInfoQuery = $derived(forgeFactory.current.repoService?.getInfo());
+	const apiForkInfo = $derived(forgeRepoInfoQuery?.response?.forkInfo);
+
+	// Update the forge factory's cache when fork info is detected
+	$effect(() => {
+		if (apiForkInfo?.isFork && apiForkInfo.parent) {
+			const parent = apiForkInfo.parent;
+			forgeFactory.setCachedParentRepo(
+				{
+					domain: 'github.com',
+					name: parent.name,
+					owner: parent.owner,
+					hash: `${parent.owner}|${parent.name}`
+				},
+				projectId
+			);
+		} else {
+			// Call with undefined to handle project changes
+			forgeFactory.setCachedParentRepo(undefined, projectId);
+		}
+	});
+
+	const parentRepoFromApi = $derived(forgeFactory.cachedParentRepo);
+
+	// Determine the effective target repo
+	const forkMode = $derived(currentProject?.fork_mode ?? 'contribute_to_parent');
+	const effectiveGitHubRepo = $derived.by(() => {
+		if (forkMode === 'own_purposes') {
+			// For own purposes, target the fork
+			return { owner: repoInfo?.owner, repo: repoInfo?.name };
+		}
+		// For contribute_to_parent, prefer parent repo if detected
+		if (parentRepoFromApi) {
+			return { owner: parentRepoFromApi.owner, repo: parentRepoFromApi.name };
+		}
+		// Fallback to origin repo
+		return { owner: repoInfo?.owner, repo: repoInfo?.name };
+	});
+
+	// Update GitHub client repo when effective target changes
+	$effect.pre(() => {
+		gitHubClient.setRepo(effectiveGitHubRepo);
+	});
+
 	// Forge factory configuration
 	$effect(() => {
 		forgeFactory.setConfig({
 			repo: repoInfo,
 			pushRepo: forkInfo,
+			parentRepo: parentRepoFromApi,
 			baseBranch: baseBranchName,
 			githubAuthenticated: !!githubAccessToken.accessToken.current,
 			githubIsLoading: githubAccessToken.isLoading.current,

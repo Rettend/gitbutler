@@ -5,9 +5,11 @@
 	import SettingsSection from '$components/SettingsSection.svelte';
 	import { BACKEND } from '$lib/backend';
 	import { BASE_BRANCH_SERVICE } from '$lib/baseBranch/baseBranchService.svelte';
+	import { DEFAULT_FORGE_FACTORY } from '$lib/forge/forgeFactory.svelte';
 	import { PROJECTS_SERVICE } from '$lib/project/projectsService';
+	import { STACK_SERVICE } from '$lib/stacks/stackService.svelte';
 	import { inject } from '@gitbutler/core/context';
-	import { CardGroup, SegmentControl, Spacer, Toggle } from '@gitbutler/ui';
+	import { CardGroup, InfoMessage, SegmentControl, Spacer, Toggle } from '@gitbutler/ui';
 	import type { ForkMode, Project } from '$lib/project/project';
 
 	const { projectId }: { projectId: string } = $props();
@@ -15,18 +17,48 @@
 	const projectQuery = $derived(projectsService.getProject(projectId));
 	const backend = inject(BACKEND);
 	const baseBranchService = inject(BASE_BRANCH_SERVICE);
+	const forge = inject(DEFAULT_FORGE_FACTORY);
+	const stackService = inject(STACK_SERVICE);
+
+	// Check if workspace has active stacks - fork mode can only be changed when empty
+	const stacksQuery = $derived(stackService.stacks(projectId));
+	const stackCount = $derived(stacksQuery.response?.length ?? 0);
+	const forkModeChangeDisabled = $derived(stackCount > 0);
 
 	const repoQuery = $derived(baseBranchService.repo(projectId));
 	const pushRepoQuery = $derived(baseBranchService.pushRepo(projectId));
 	const repo = $derived(repoQuery.response);
 	const pushRepo = $derived(pushRepoQuery.response);
 
-	// Determine if a fork is configured (push remote differs from fetch remote)
-	const hasForkConfigured = $derived(repo && pushRepo && repo.hash !== pushRepo.hash);
+	// The layout populates this cache when fork info is detected from the GitHub API
+	const cachedParentRepo = $derived(forge.cachedParentRepo);
 
-	// Get display names for the repos
-	const upstreamName = $derived(repo ? `${repo.owner}/${repo.name}` : undefined);
-	const forkName = $derived(pushRepo ? `${pushRepo.owner}/${pushRepo.name}` : undefined);
+	// Determine if a fork setup exists:
+	// 1. Cached parent repo exists (detected via GitHub API), OR
+	// 2. Push remote differs from fetch remote
+	const hasForkViaApi = $derived(cachedParentRepo !== undefined);
+	const hasForkViaRemotes = $derived(repo && pushRepo && repo.hash !== pushRepo.hash);
+	const hasForkConfigured = $derived(hasForkViaApi || hasForkViaRemotes);
+
+	const upstreamName = $derived.by(() => {
+		if (cachedParentRepo) {
+			return `${cachedParentRepo.owner}/${cachedParentRepo.name}`;
+		}
+		if (repo) {
+			return `${repo.owner}/${repo.name}`;
+		}
+		return undefined;
+	});
+
+	const forkName = $derived.by(() => {
+		if (hasForkViaApi && repo) {
+			return `${repo.owner}/${repo.name}`;
+		}
+		if (pushRepo) {
+			return `${pushRepo.owner}/${pushRepo.name}`;
+		}
+		return undefined;
+	});
 
 	async function onForcePushClick(project: Project, value: boolean) {
 		await projectsService.updateProject({ ...project, ok_with_force_push: value });
@@ -58,8 +90,7 @@
 							Fork behavior
 						{/snippet}
 						{#snippet caption()}
-							Choose how to use your fork. This affects where pull requests are created and which
-							repository "Open on GitHub" opens.
+							Choose how to use your fork. This affects where pull requests are created.
 						{/snippet}
 						{#snippet actions()}
 							<div class="fork-mode-control">
@@ -67,21 +98,34 @@
 									fullWidth
 									selected={project.fork_mode}
 									onselect={(id) => onForkModeChange(project, id as ForkMode)}
+									disabled={forkModeChangeDisabled}
 								>
 									<SegmentControl.Item id="contribute_to_parent">
 										Contribute to parent
 									</SegmentControl.Item>
 									<SegmentControl.Item id="own_purposes">For my own purposes</SegmentControl.Item>
 								</SegmentControl>
-								<div class="fork-mode-hint text-12 text-body">
-									{#if project.fork_mode === 'contribute_to_parent'}
-										PRs will target <strong>{upstreamName}</strong>
-									{:else}
-										PRs will target <strong>{forkName}</strong>
-									{/if}
-								</div>
+								{#if !forkModeChangeDisabled}
+									<div class="fork-mode-hint text-12 text-body">
+										{#if project.fork_mode === 'contribute_to_parent'}
+											PRs will target <strong>{upstreamName}</strong>
+										{:else}
+											PRs will target <strong>{forkName}</strong>
+										{/if}
+									</div>
+								{/if}
 							</div>
 						{/snippet}
+            {#if forkModeChangeDisabled}
+              <InfoMessage filled outlined={false} icon="info">
+                {#snippet content()}
+                  You have {stackCount === 1
+                    ? '1 active branch'
+                    : `${stackCount} active branches`} in your workspace. Please clear the workspace
+                  before changing fork behavior.
+                {/snippet}
+              </InfoMessage>
+            {/if}
 					</CardGroup.Item>
 				{/if}
 				<CardGroup.Item labelFor="allowForcePush">
