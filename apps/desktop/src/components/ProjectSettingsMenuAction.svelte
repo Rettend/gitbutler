@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { BASE_BRANCH_SERVICE } from '$lib/baseBranch/baseBranchService.svelte';
 	import { FILE_SERVICE } from '$lib/files/fileService';
 	import { vscodePath } from '$lib/project/project';
 	import { PROJECTS_SERVICE } from '$lib/project/projectsService';
@@ -20,6 +21,10 @@
 	const userSettings = inject(SETTINGS);
 	const shortcutService = inject(SHORTCUT_SERVICE);
 	const fileService = inject(FILE_SERVICE);
+	const baseBranchService = inject(BASE_BRANCH_SERVICE);
+
+	const repoInfoQuery = $derived(baseBranchService.repo(projectId));
+	const repoInfo = $derived(repoInfoQuery.response);
 
 	$effect(() =>
 		mergeUnlisten(
@@ -49,6 +54,14 @@
 				}
 				// Show the project directory in the default file manager (cross-platform)
 				await fileService.showFileInFolder(project.path);
+			}),
+			shortcutService.on('open-on-github', () => {
+				if (!repoInfo) {
+					console.error('Repo info not found for project:', projectId);
+					return;
+				}
+				const url = `https://${repoInfo.domain}/${repoInfo.owner}/${repoInfo.name}`;
+				urlService.openExternalUrl(url);
 			})
 		)
 	);

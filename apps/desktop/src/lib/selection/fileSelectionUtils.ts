@@ -120,7 +120,7 @@ export function updateSelection({
 		// Cmd+A on Mac, Ctrl+A on Windows/Linux
 		case 'a':
 		case 'A':
-			if (allowMultiple && (metaKey || ctrlKey)) {
+			if (allowMultiple && (metaKey || ctrlKey) && !shiftKey) {
 				preventDefault();
 
 				for (let i = 0; i < files.length; i++) {

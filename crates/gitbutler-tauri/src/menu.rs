@@ -171,26 +171,44 @@ pub fn build<R: Runtime>(
                 .accelerator("CmdOrCtrl+Shift+H")
                 .build(handle)?,
         )
-        .separator()
-        .text("project/open-in-vscode", "Open in Editor");
+        .item(
+            &MenuItemBuilder::with_id("project/open-in-vscode", "Open in Editor")
+                .accelerator("CmdOrCtrl+Shift+A")
+                .build(handle)?,
+        );
 
     #[cfg(target_os = "macos")]
     {
-        project_menu_builder =
-            project_menu_builder.text("project/show-in-finder", "Show in Finder");
+        project_menu_builder = project_menu_builder.item(
+            &MenuItemBuilder::with_id("project/show-in-finder", "Show in Finder")
+                .accelerator("CmdOrCtrl+Shift+F")
+                .build(handle)?,
+        );
     }
 
     #[cfg(target_os = "windows")]
     {
-        project_menu_builder =
-            project_menu_builder.text("project/show-in-finder", "Show in Explorer");
+        project_menu_builder = project_menu_builder.item(
+            &MenuItemBuilder::with_id("project/show-in-finder", "Show in Explorer")
+                .accelerator("CmdOrCtrl+Shift+F")
+                .build(handle)?,
+        );
     }
 
     #[cfg(target_os = "linux")]
     {
-        project_menu_builder =
-            project_menu_builder.text("project/show-in-finder", "Show in File Manager");
+        project_menu_builder = project_menu_builder.item(
+            &MenuItemBuilder::with_id("project/show-in-finder", "Show in File Manager")
+                .accelerator("CmdOrCtrl+Shift+F")
+                .build(handle)?,
+        );
     }
+
+    project_menu_builder = project_menu_builder.item(
+        &MenuItemBuilder::with_id("project/open-on-github", "Open on GitHub")
+            .accelerator("CmdOrCtrl+Shift+G")
+            .build(handle)?,
+    );
 
     let project_menu = &project_menu_builder
         .separator()
@@ -340,6 +358,11 @@ pub fn handle_event<R: Runtime>(
 
     if event.id() == "project/show-in-finder" {
         emit(webview, SHORTCUT_EVENT, "show-in-finder");
+        return;
+    }
+
+    if event.id() == "project/open-on-github" {
+        emit(webview, SHORTCUT_EVENT, "open-on-github");
         return;
     }
 

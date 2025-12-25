@@ -14,6 +14,7 @@
 	} from '$lib/routes/routes.svelte';
 	import { useSettingsModal } from '$lib/settings/settingsModal.svelte';
 	import { SETTINGS } from '$lib/settings/userSettings';
+	import { SHORTCUT_SERVICE } from '$lib/shortcuts/shortcutService';
 	import { USER } from '$lib/user/user';
 	import { inject } from '@gitbutler/core/context';
 	import {
@@ -25,6 +26,7 @@
 		TestId
 	} from '@gitbutler/ui';
 	import { focusable } from '@gitbutler/ui/focus/focusable';
+	import { mergeUnlisten } from '@gitbutler/ui/utils/mergeUnlisten';
 	import { stringToColor } from '@gitbutler/ui/utils/stringToColor';
 
 	import { slide } from 'svelte/transition';
@@ -32,6 +34,7 @@
 	const { projectId, disabled = false }: { projectId: string; disabled?: boolean } = $props();
 
 	const user = inject(USER);
+	const shortcutService = inject(SHORTCUT_SERVICE);
 
 	let contextTriggerButton = $state<HTMLButtonElement | undefined>();
 	let contextMenuEl = $state<ContextMenu>();
@@ -39,6 +42,20 @@
 
 	const userSettings = inject(SETTINGS);
 	const { openGeneralSettings, openProjectSettings } = useSettingsModal();
+
+	$effect(() =>
+		mergeUnlisten(
+			shortcutService.on('navigate-workspace', () => {
+				if (!disabled) goto(workspacePath(projectId));
+			}),
+			shortcutService.on('navigate-branches', () => {
+				if (!disabled) goto(branchesPath(projectId));
+			}),
+			shortcutService.on('navigate-history', () => {
+				if (!disabled) goto(historyPath(projectId));
+			})
+		)
+	);
 </script>
 
 <div class="sidebar" use:focusable>
