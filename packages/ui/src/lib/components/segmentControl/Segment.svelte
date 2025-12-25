@@ -16,10 +16,21 @@
 		icon?: keyof typeof iconsJson;
 	}
 
-	const { id, children, disabled, icon, tooltip, tooltipPosition, testId }: SegmentProps = $props();
+	const {
+		id,
+		children,
+		disabled: localDisabled,
+		icon,
+		tooltip,
+		tooltipPosition,
+		testId
+	}: SegmentProps = $props();
 
 	const context = getContext<SegmentContext>('SegmentControl');
 	const selectedSegmentId = context.selectedSegmentId;
+	const contextDisabled = context.disabled;
+
+	const isDisabled = $derived(localDisabled || $contextDisabled);
 
 	let elRef = $state<HTMLButtonElement>();
 	let isFocused = $state(false);
@@ -44,8 +55,8 @@
 		{id}
 		class="segment-control-item"
 		role="tab"
-		{disabled}
-		tabindex={isSelected || disabled ? -1 : 0}
+		disabled={isDisabled}
+		tabindex={isSelected || isDisabled ? -1 : 0}
 		aria-selected={isSelected}
 		onclick={() => {
 			if (!isSelected) {

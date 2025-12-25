@@ -212,7 +212,11 @@ pub fn build<R: Runtime>(
 
     let project_menu = &project_menu_builder
         .separator()
-        .text("project/settings", "Project Settings")
+        .item(
+            &MenuItemBuilder::with_id("project/settings", "Project Settings")
+                .accelerator("CmdOrCtrl+.")
+                .build(handle)?,
+        )
         .build()?;
 
     #[cfg(target_os = "macos")]

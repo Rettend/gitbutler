@@ -26,6 +26,7 @@
 	import { PrPersistedStore } from '$lib/forge/prContents';
 	import { updatePrDescriptionTables as updatePrStackInfo } from '$lib/forge/shared/prFooter';
 	import { showError, showToast } from '$lib/notifications/toasts';
+	import { PROJECTS_SERVICE } from '$lib/project/projectsService';
 	import { REMOTES_SERVICE } from '$lib/remotes/remotesService';
 	import { partialStackRequestsForcePush, requiresPush } from '$lib/stacks/stack';
 	import { STACK_SERVICE, type BranchPushResult } from '$lib/stacks/stackService.svelte';
@@ -63,6 +64,10 @@
 	const uiState = inject(UI_STATE);
 	const settingsService = inject(SETTINGS_SERVICE);
 	const appSettings = settingsService.appSettings;
+	const projectsService = inject(PROJECTS_SERVICE);
+
+	const projectQuery = $derived(projectsService.getProject(projectId));
+	const forkMode = $derived(projectQuery.response?.fork_mode ?? 'contribute_to_parent');
 
 	const gitLabState = inject(GITLAB_STATE);
 	const gitLabConfigured = $derived(gitLabState.configured);
@@ -298,11 +303,16 @@
 
 			const repoInfo = parseRemoteUrl(pushRemoteUrl);
 
+			// Determine upstreamName based on fork mode:
+			// - 'own_purposes': PR is within the fork repo, no owner prefix needed
+			// - 'contribute_to_parent': PR crosses fork boundary, need owner:branch format
 			const upstreamName =
 				prService instanceof GitHubPrService
-					? repoInfo?.owner
-						? `${repoInfo.owner}:${params.upstreamBranchName}`
-						: params.upstreamBranchName
+					? forkMode === 'own_purposes'
+						? params.upstreamBranchName // PR within same repo, no prefix
+						: repoInfo?.owner
+							? `${repoInfo.owner}:${params.upstreamBranchName}` // Cross-fork PR
+							: params.upstreamBranchName
 					: params.upstreamBranchName;
 
 			const pr = await prService.createPr({

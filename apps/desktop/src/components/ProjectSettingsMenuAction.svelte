@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { BASE_BRANCH_SERVICE } from '$lib/baseBranch/baseBranchService.svelte';
 	import { FILE_SERVICE } from '$lib/files/fileService';
+	import { DEFAULT_FORGE_FACTORY } from '$lib/forge/forgeFactory.svelte';
 	import { vscodePath } from '$lib/project/project';
 	import { PROJECTS_SERVICE } from '$lib/project/projectsService';
 	import { historyPath } from '$lib/routes/routes.svelte';
@@ -22,14 +23,16 @@
 	const shortcutService = inject(SHORTCUT_SERVICE);
 	const fileService = inject(FILE_SERVICE);
 	const baseBranchService = inject(BASE_BRANCH_SERVICE);
+	const forge = inject(DEFAULT_FORGE_FACTORY);
 
-	// Get both upstream and fork repo info
 	const repoInfoQuery = $derived(baseBranchService.repo(projectId));
 	const pushRepoInfoQuery = $derived(baseBranchService.pushRepo(projectId));
 	const repoInfo = $derived(repoInfoQuery.response);
 	const pushRepoInfo = $derived(pushRepoInfoQuery.response);
 
-	// Get project to access fork_mode
+	const repoDetailsQuery = $derived(forge.current.repoService?.getInfo());
+	const forkInfo = $derived(repoDetailsQuery?.response?.forkInfo);
+
 	const projectQuery = $derived(projectsService.getProject(projectId));
 	const project = $derived(
 		projectQuery.result.status === 'fulfilled' ? projectQuery.result.data : undefined
@@ -65,17 +68,38 @@
 				await fileService.showFileInFolder(project.path);
 			}),
 			shortcutService.on('open-on-github', () => {
-				// Determine which repo to open based on fork mode
-				// If fork mode is "own_purposes" and we have a push repo, use the push repo (fork)
-				// Otherwise, use the upstream repo
-				const useOwnRepo = project?.fork_mode === 'own_purposes' && pushRepoInfo;
-				const targetRepo = useOwnRepo ? pushRepoInfo : repoInfo;
+				// Determine which repo to open based on fork mode and fork detection
+				const forkMode = project?.fork_mode ?? 'contribute_to_parent';
 
-				if (!targetRepo) {
+				let targetOwner: string | undefined;
+				let targetName: string | undefined;
+				let targetDomain: string | undefined;
+
+				if (forkMode === 'own_purposes') {
+					// work on fork - use origin/push repo
+					targetOwner = pushRepoInfo?.owner ?? repoInfo?.owner;
+					targetName = pushRepoInfo?.name ?? repoInfo?.name;
+					targetDomain = pushRepoInfo?.domain ?? repoInfo?.domain;
+				} else {
+					// contribute to parent
+					// If this is a fork detected via API, use the parent repo
+					if (forkInfo?.isFork && forkInfo.parent) {
+						targetOwner = forkInfo.parent.owner;
+						targetName = forkInfo.parent.name;
+						targetDomain = repoInfo?.domain ?? 'github.com';
+					} else {
+						// Traditional setup or not a fork - use origin repo
+						targetOwner = repoInfo?.owner;
+						targetName = repoInfo?.name;
+						targetDomain = repoInfo?.domain;
+					}
+				}
+
+				if (!targetOwner || !targetName || !targetDomain) {
 					console.error('Repo info not found for project:', projectId);
 					return;
 				}
-				const url = `https://${targetRepo.domain}/${targetRepo.owner}/${targetRepo.name}`;
+				const url = `https://${targetDomain}/${targetOwner}/${targetName}`;
 				urlService.openExternalUrl(url);
 			})
 		)

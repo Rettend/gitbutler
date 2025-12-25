@@ -3,7 +3,7 @@
 	 * On Windows, Tauri menu accelerators don't work. It seems to be a bug in Tauri.
 	 * This component provides a frontend workaround by listening for keyboard shortcuts
 	 * and emitting the same events that the ShortcutService expects.
-   * @see https://github.com/tauri-apps/wry/issues/451
+	 * @see https://github.com/tauri-apps/wry/issues/451
 	 */
 	import { BACKEND } from '$lib/backend';
 	import { SHORTCUT_SERVICE } from '$lib/shortcuts/shortcutService';
@@ -21,6 +21,7 @@
 		'$mod+Shift+KeyA': 'open-in-vscode',
 		'$mod+Shift+KeyF': 'show-in-finder',
 		'$mod+Shift+KeyG': 'open-on-github',
+		'$mod+Period': 'project-settings',
 		'$mod+KeyT': 'switch-theme',
 		'$mod+Backslash': 'toggle-sidebar',
 		'$mod+Equal': 'zoom-in',

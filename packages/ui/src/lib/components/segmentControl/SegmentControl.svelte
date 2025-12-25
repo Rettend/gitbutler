@@ -9,6 +9,7 @@
 		fullWidth?: boolean;
 		shrinkable?: boolean;
 		size?: 'default' | 'small';
+		disabled?: boolean;
 		onselect?: (id: string) => void;
 		children: Snippet;
 	}
@@ -18,12 +19,14 @@
 		fullWidth = false,
 		shrinkable = false,
 		size = 'default',
+		disabled = false,
 		onselect,
 		children
 	}: SegmentProps = $props();
 
 	const registeredSegments: string[] = [];
 	const selectedSegmentId = writable<string | undefined>(selected);
+	const disabledStore = writable<boolean>(disabled);
 
 	// Sync external selected prop to internal store
 	$effect(() => {
@@ -32,8 +35,14 @@
 		}
 	});
 
+	// Sync external disabled prop to internal store
+	$effect(() => {
+		disabledStore.set(disabled);
+	});
+
 	const context: SegmentContext = {
 		selectedSegmentId,
+		disabled: disabledStore,
 		registerSegment: (id: string) => {
 			if (!registeredSegments.includes(id)) {
 				registeredSegments.push(id);
