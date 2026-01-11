@@ -141,7 +141,8 @@
 	const effectiveGitHubRepo = $derived.by(() => {
 		if (forkMode === 'own_purposes') {
 			// For own purposes, target the fork
-			return { owner: repoInfo?.owner, repo: repoInfo?.name };
+			const targetRepo = forkInfo ?? repoInfo;
+			return { owner: targetRepo?.owner, repo: targetRepo?.name };
 		}
 		// For contribute_to_parent, prefer parent repo if detected
 		if (parentRepoFromApi) {
@@ -150,6 +151,7 @@
 		// Fallback to origin repo
 		return { owner: repoInfo?.owner, repo: repoInfo?.name };
 	});
+
 
 	// Update GitHub client repo when effective target changes
 	$effect.pre(() => {
