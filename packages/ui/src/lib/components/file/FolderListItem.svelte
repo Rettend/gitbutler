@@ -2,6 +2,7 @@
 	import Checkbox from '$components/Checkbox.svelte';
 	import Icon from '$components/Icon.svelte';
 	import FileIndent from '$components/file/FileIndent.svelte';
+	import FolderIcon from '$components/file/FolderIcon.svelte';
 
 	interface Props {
 		name: string;
@@ -103,7 +104,7 @@
 			<Checkbox small bind:checked {indeterminate} onchange={oncheck} />
 		{/if}
 
-		<Icon name="folder" />
+		<FolderIcon folderName={name} isOpen={isFolderExpanded} />
 	</div>
 	<p class="text-12 text-semibold truncate">{name}</p>
 </div>

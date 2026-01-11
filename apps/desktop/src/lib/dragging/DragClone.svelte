@@ -4,7 +4,7 @@
 	import { type CommitStatusType } from '$lib/commits/commit';
 	import { type PushStatus } from '$lib/stacks/stack';
 	import { Icon } from '@gitbutler/ui';
-	import { getFileIcon } from '@gitbutler/ui/components/file/getFileIcon';
+	import { getFileIcon, type Theme } from '@gitbutler/ui/components/file/getFileIcon';
 	import { type DragStateService } from '@gitbutler/ui/drag/dragStateService.svelte';
 	import { readable } from 'svelte/store';
 
@@ -28,13 +28,38 @@
 		dragStateService
 	}: Props = $props();
 
+	function getTheme(): Theme {
+		if (typeof document !== 'undefined') {
+			return document.documentElement.classList.contains('light') ? 'light' : 'dark';
+		}
+		return 'dark';
+	}
+
+	let theme = $state<Theme>('dark');
+
+	$effect(() => {
+		if (typeof document === 'undefined') return;
+
+		theme = getTheme();
+		const observer = new MutationObserver(() => {
+			theme = getTheme();
+		});
+
+		observer.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ['class']
+		});
+
+		return () => observer.disconnect();
+	});
+
 	const fallbackDropLabelStore = readable<string | undefined>(undefined);
 	const dropLabel = $derived(dragStateService?.dropLabel ?? fallbackDropLabelStore);
 
 	const commitColor = $derived(
 		type === 'commit' && commitType ? getColorFromCommitState(commitType, false) : undefined
 	);
-	const fileIcon = $derived(filePath ? getFileIcon(filePath) : undefined);
+	const fileIcon = $derived(filePath ? getFileIcon(filePath, theme) : undefined);
 </script>
 
 {#snippet dropLabelSnippet(opt: { label?: string; amount?: number })}
