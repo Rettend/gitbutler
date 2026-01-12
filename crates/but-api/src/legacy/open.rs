@@ -18,6 +18,7 @@ pub(crate) fn open_that(path: &str) -> anyhow::Result<()> {
         "zed",
         "windsurf",
         "cursor",
+        "antigravity",
         "trae",
     ]
     .contains(&target_url.scheme())
