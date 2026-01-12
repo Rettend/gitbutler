@@ -52,6 +52,7 @@
 
 	const userSettings = inject(SETTINGS);
 	const editorOptions: CodeEditorSettings[] = [
+		{ schemeIdentifer: 'antigravity', displayName: 'Antigravity' },
 		{ schemeIdentifer: 'vscodium', displayName: 'VSCodium' },
 		{ schemeIdentifer: 'vscode', displayName: 'VSCode' },
 		{ schemeIdentifer: 'vscode-insiders', displayName: 'VSCode Insiders' },
