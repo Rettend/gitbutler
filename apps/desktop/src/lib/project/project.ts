@@ -17,6 +17,13 @@ export type ForgeUserIdentifier = {
 	details: GitHubAccountIdentifier;
 };
 
+/**
+ * Determines how a forked repository is used.
+ * - 'contribute_to_parent': PRs target the upstream (parent) repository
+ * - 'own_purposes': PRs target the fork (push remote)
+ */
+export type ForkMode = 'contribute_to_parent' | 'own_purposes';
+
 export type Project = {
 	id: string;
 	title: string;
@@ -43,6 +50,10 @@ export type Project = {
 	 * The path to the forge review template, if set in git configuration.
 	 */
 	forge_review_template_path: string | null;
+	/**
+	 * Determines how a forked repository should be used.
+	 */
+	fork_mode: ForkMode;
 };
 
 export function vscodePath(path: string) {

@@ -10,6 +10,7 @@ import type { PostHogWrapper } from '$lib/analytics/posthog';
 import type { ForgeProvider } from '$lib/baseBranch/baseBranch';
 import type { GitLabClient } from '$lib/forge/gitlab/gitlabClient.svelte';
 import type { Forge, ForgeName } from '$lib/forge/interface/forge';
+import type { ForkMode } from '$lib/project/project';
 import type { BackendApi, GitHubApi, GitLabApi } from '$lib/state/clientState.svelte';
 import type { ReduxTag } from '$lib/state/tags';
 import type { RepoInfo } from '$lib/url/gitUrl';
@@ -20,6 +21,7 @@ import type { TagDescription } from '@reduxjs/toolkit/query';
 export type ForgeConfig = {
 	repo?: RepoInfo;
 	pushRepo?: RepoInfo;
+	parentRepo?: RepoInfo;
 	baseBranch?: string;
 	githubAuthenticated?: boolean;
 	githubIsLoading?: boolean;
@@ -27,6 +29,7 @@ export type ForgeConfig = {
 	gitlabAuthenticated?: boolean;
 	detectedForgeProvider: ForgeProvider | undefined;
 	forgeOverride?: ForgeName;
+	forkMode?: ForkMode;
 };
 
 export const DEFAULT_FORGE_FACTORY = new InjectionToken<DefaultForgeFactory>('DefaultForgeFactory');
@@ -37,6 +40,8 @@ export class DefaultForgeFactory implements Reactive<Forge> {
 	private _config: any = undefined;
 	private _determinedForgeType = $state<ForgeName>('default');
 	private _githubError = $state<{ code: string; message: string } | undefined>(undefined);
+	private _cachedParentRepo = $state<RepoInfo | undefined>(undefined);
+	private _lastProjectId = $state<string | undefined>(undefined);
 	private _canSetupIntegration = $derived.by(() => {
 		// Don't show the setup prompt if there's a network error
 		if (this._githubError?.code === 'errors.network') {
@@ -94,6 +99,27 @@ export class DefaultForgeFactory implements Reactive<Forge> {
 		return this._forge.prService?.unit.symbol ?? '#';
 	}
 
+	/**
+	 * Get the cached parent repo info
+	 */
+	get cachedParentRepo(): RepoInfo | undefined {
+		return this._cachedParentRepo;
+	}
+
+	/**
+	 * Set the cached parent repo info.
+	 * Only updates if value is provided, doesn't clear when undefined.
+	 */
+	setCachedParentRepo(parentRepo: RepoInfo | undefined, projectId: string) {
+		if (projectId !== this._lastProjectId) {
+			this._lastProjectId = projectId;
+			this._cachedParentRepo = undefined;
+		}
+		if (parentRepo) {
+			this._cachedParentRepo = parentRepo;
+		}
+	}
+
 	setConfig(config: ForgeConfig) {
 		if (deepCompare(config, this._config)) {
 			return;
@@ -102,20 +128,53 @@ export class DefaultForgeFactory implements Reactive<Forge> {
 		const {
 			repo,
 			pushRepo,
+			parentRepo,
 			baseBranch,
 			githubAuthenticated,
 			githubIsLoading,
 			githubError,
 			gitlabAuthenticated,
 			detectedForgeProvider,
-			forgeOverride
+			forgeOverride,
+			forkMode
 		} = config;
 		this._githubError = githubError;
-		if (repo && baseBranch) {
-			this._determinedForgeType = this.determineForgeType(repo, detectedForgeProvider);
+
+		// Determine the effective target repo based on fork mode:
+		// - 'own_purposes': PRs target the push repo (fork)
+		// - 'contribute_to_parent': PRs target the parent repo
+		let effectiveTargetRepo: RepoInfo | undefined;
+		let effectivePushRepo: RepoInfo | undefined;
+
+		if (forkMode === 'own_purposes') {
+			// For own purposes, target the fork itself
+			effectiveTargetRepo = pushRepo ?? repo;
+			effectivePushRepo = undefined;
+		} else {
+			// For contribute_to_parent, prefer parentRepo from API if available
+			if (parentRepo) {
+				// Fork detected via API - use parent as target, repo as the fork source
+				effectiveTargetRepo = parentRepo;
+				effectivePushRepo = repo;
+			} else if (pushRepo && pushRepo.hash !== repo?.hash) {
+				// Different push and fetch remotes
+				effectiveTargetRepo = repo;
+				effectivePushRepo = pushRepo;
+			} else {
+				// No fork detected, use repo as is
+				effectiveTargetRepo = repo;
+				effectivePushRepo = undefined;
+			}
+		}
+
+		if (effectiveTargetRepo && baseBranch) {
+			this._determinedForgeType = this.determineForgeType(
+				effectiveTargetRepo,
+				detectedForgeProvider
+			);
 			this._forge = this.build({
-				repo,
-				pushRepo,
+				repo: effectiveTargetRepo,
+				pushRepo: effectivePushRepo,
 				baseBranch,
 				githubAuthenticated,
 				githubIsLoading,
