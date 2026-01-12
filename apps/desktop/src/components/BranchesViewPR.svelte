@@ -55,6 +55,42 @@
 		}
 	}
 
+	/**
+	 * Find an existing remote that has the same URL as the PR's source repo
+	 */
+	async function findExistingRemoteForPr(pr: DetailedPullRequest): Promise<string | undefined> {
+		const remoteUrl = getRemoteUrl(pr);
+		if (!remoteUrl) return undefined;
+
+		const remotes = await remotesService.remotes(projectId);
+		const matchingRemote = remotes.find((remote) => remote.url === remoteUrl);
+		return matchingRemote?.name;
+	}
+
+	/**
+	 * Apply PR using an existing remote (no modal needed)
+	 */
+	async function applyWithExistingRemote(pr: DetailedPullRequest, remoteName: string) {
+		loading = true;
+		try {
+			const remoteRef = 'refs/remotes/' + remoteName + '/' + pr.sourceBranch;
+			await baseBranchService.fetchFromRemotes(projectId);
+			const outcome = await stackService.createVirtualBranchFromBranch({
+				projectId,
+				branch: remoteRef,
+				remote: remoteRef,
+				prNumber
+			});
+
+			handleCreateBranchFromBranchOutcome(outcome);
+			goto(workspacePath(projectId));
+		} catch (err: unknown) {
+			showError('Failed to apply branch', err);
+		} finally {
+			loading = false;
+		}
+	}
+
 	async function handleConfirmRemote(pr: DetailedPullRequest) {
 		const remoteUrl = getRemoteUrl(pr);
 
@@ -89,8 +125,19 @@
 		}
 	}
 
-	export function applyPr() {
-		createRemoteModal?.show();
+	export async function applyPr() {
+		const pr = prQuery?.response;
+		if (!pr) {
+			showError('Cannot apply PR', 'PR data not available');
+			return;
+		}
+
+		const existingRemoteName = await findExistingRemoteForPr(pr);
+		if (existingRemoteName) {
+			await applyWithExistingRemote(pr, existingRemoteName);
+		} else {
+			createRemoteModal?.show();
+		}
 	}
 </script>
 

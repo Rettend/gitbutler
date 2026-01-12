@@ -179,21 +179,6 @@ pub fn list_reviews(
             ctx.legacy_project,
         )
     };
-<<<<<<< ours
-    let db = &mut *ctx.db.get_mut()?;
-    but_forge::list_forge_reviews_with_cache(
-        project.preferred_forge_user,
-        &base_branch
-            .forge_repo_info
-            .context("No forge could be determined for this repository branch")?,
-||||||| ancestor
-    but_forge::list_forge_reviews(
-        &project.preferred_forge_user,
-        &base_branch
-            .forge_repo_info
-            .context("No forge could be determined for this repository branch")?,
-=======
-
     let forge_repo_info = match project.fork_mode {
         gitbutler_project::ForkMode::OwnPurposes => {
             but_forge::derive_forge_repo_info(&base_branch.push_remote_url)
@@ -202,10 +187,11 @@ pub fn list_reviews(
         gitbutler_project::ForkMode::ContributeToParent => base_branch.forge_repo_info,
     };
 
-    but_forge::list_forge_reviews(
-        &project.preferred_forge_user,
+    let db = &mut *ctx.db.get_mut()?;
+
+    but_forge::list_forge_reviews_with_cache(
+        project.preferred_forge_user,
         &forge_repo_info.context("No forge could be determined for this repository branch")?,
->>>>>>> theirs
         &storage,
         db,
         cache_config,
