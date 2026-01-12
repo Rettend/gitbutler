@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import ProfileButton from '$components/ProfileButton.svelte';
 	import ShareIssueModal from '$components/ShareIssueModal.svelte';
 	import { ircEnabled } from '$lib/config/uiFeatureFlags';
 	import {
@@ -15,25 +16,15 @@
 	import { useSettingsModal } from '$lib/settings/settingsModal.svelte';
 	import { SETTINGS } from '$lib/settings/userSettings';
 	import { SHORTCUT_SERVICE } from '$lib/shortcuts/shortcutService';
-	import { USER } from '$lib/user/user';
 	import { inject } from '@gitbutler/core/context';
-	import {
-		Button,
-		ContextMenu,
-		ContextMenuItem,
-		ContextMenuSection,
-		Icon,
-		TestId
-	} from '@gitbutler/ui';
+	import { Button, ContextMenu, ContextMenuItem, ContextMenuSection, TestId } from '@gitbutler/ui';
 	import { focusable } from '@gitbutler/ui/focus/focusable';
 	import { mergeUnlisten } from '@gitbutler/ui/utils/mergeUnlisten';
-	import { stringToColor } from '@gitbutler/ui/utils/stringToColor';
 
 	import { slide } from 'svelte/transition';
 
 	const { projectId, disabled = false }: { projectId: string; disabled?: boolean } = $props();
 
-	const user = inject(USER);
 	const shortcutService = inject(SHORTCUT_SERVICE);
 
 	let contextTriggerButton = $state<HTMLButtonElement | undefined>();
@@ -257,38 +248,7 @@
 				</Button>
 			</div>
 
-			<Button
-				kind="outline"
-				width={34}
-				class="btn-height-auto"
-				onclick={() => {
-					contextMenuEl?.toggle();
-				}}
-				bind:el={contextTriggerButton}
-			>
-				{#snippet custom()}
-					<div class="user-button">
-						<div
-							class="user-icon"
-							style="background-color: {stringToColor($user?.email || 'guest')}"
-						>
-							{#if $user?.picture}
-								<img
-									class="user-icon__image"
-									src={$user.picture}
-									alt=""
-									referrerpolicy="no-referrer"
-								/>
-							{:else}
-								<Icon name="profile" />
-							{/if}
-						</div>
-						<div class="user-button__select-icon">
-							<Icon name="select-chevron" />
-						</div>
-					</div>
-				{/snippet}
-			</Button>
+			<ProfileButton />
 		</div>
 		<div class="bottom__ghost-actions">
 			<Button
@@ -391,43 +351,6 @@
 		position: relative;
 		flex-direction: column;
 		gap: 2px;
-	}
-
-	/* USER BUTTON */
-	.user-button {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		width: 34px;
-		padding: 4px;
-		gap: 4px;
-	}
-
-	.user-icon {
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		width: 26px;
-		height: 26px;
-		overflow: hidden;
-		border-radius: var(--radius-m);
-		background-color: var(--clr-core-pop-50);
-		color: var(--clr-core-gray-100);
-	}
-
-	.user-icon__image {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-	}
-
-	.user-button__select-icon {
-		color: var(--label-clr);
-		opacity: var(--icon-opacity);
-		transition:
-			opacity var(--transition-fast),
-			color var(--transition-fast);
 	}
 
 	.active-page-indicator {

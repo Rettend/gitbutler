@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    io::{self, Read},
-    path::Path,
-    str::FromStr,
-};
+use std::{collections::HashMap, path::Path, str::FromStr};
 
 use anyhow::{Context as _, Result, anyhow};
 use but_action::{
@@ -20,8 +15,6 @@ use gitbutler_branch::BranchCreateRequest;
 use gitbutler_project::Project;
 use gitbutler_stack::VirtualBranchesHandle;
 use serde::{Deserialize, Serialize};
-
-// use crate::command::file_lock;
 
 mod file_lock;
 use but_core::{HunkHeader, ref_metadata::StackId};
@@ -91,8 +84,8 @@ pub struct ClaudeStopInput {
     pub stop_hook_active: Option<bool>,
 }
 
-pub async fn handle_stop() -> anyhow::Result<ClaudeHookOutput> {
-    let input: ClaudeStopInput = serde_json::from_str(&stdin()?)
+pub async fn handle_stop(read: impl std::io::Read) -> anyhow::Result<ClaudeHookOutput> {
+    let input: ClaudeStopInput = serde_json::from_reader(read)
         .map_err(|e| anyhow::anyhow!("Failed to parse input JSON: {}", e))?;
 
     let transcript = Transcript::from_file(Path::new(&input.transcript_path))?;
@@ -347,8 +340,8 @@ pub struct ClaudePreToolUseInput {
     pub tool_input: ToolInput,
 }
 
-pub fn handle_pre_tool_call() -> anyhow::Result<ClaudeHookOutput> {
-    let mut input: ClaudePreToolUseInput = serde_json::from_str(&stdin()?)
+pub fn handle_pre_tool_call(read: impl std::io::Read) -> anyhow::Result<ClaudeHookOutput> {
+    let mut input: ClaudePreToolUseInput = serde_json::from_reader(read)
         .map_err(|e| anyhow::anyhow!("Failed to parse input JSON: {}", e))?;
 
     let dir = std::path::Path::new(&input.tool_input.file_path)
@@ -385,8 +378,8 @@ pub fn handle_pre_tool_call() -> anyhow::Result<ClaudeHookOutput> {
     })
 }
 
-pub fn handle_post_tool_call() -> anyhow::Result<ClaudeHookOutput> {
-    let mut input: ClaudePostToolUseInput = serde_json::from_str(&stdin()?)
+pub fn handle_post_tool_call(read: impl std::io::Read) -> anyhow::Result<ClaudeHookOutput> {
+    let mut input: ClaudePostToolUseInput = serde_json::from_reader(read)
         .map_err(|e| anyhow::anyhow!("Failed to parse input JSON: {}", e))?;
 
     let hook_headers = input
@@ -527,12 +520,6 @@ pub fn get_or_create_session(
     Ok(stack_id)
 }
 
-fn stdin() -> anyhow::Result<String> {
-    let mut buffer = String::new();
-    io::stdin().read_to_string(&mut buffer)?;
-    Ok(buffer.trim().to_string())
-}
-
 fn create_stack(
     ctx: &Context,
     vb_state: &VirtualBranchesHandle,
@@ -543,9 +530,7 @@ fn create_stack(
         gitbutler_stack::Stack::next_available_name(&*ctx.repo.get()?, vb_state, template, false)?;
     let create_req = BranchCreateRequest {
         name: Some(branch_name),
-        ownership: None,
         order: None,
-        selected_for_changes: None,
     };
     let stack = gitbutler_branch_actions::create_virtual_branch(ctx, &create_req, perm)?;
     Ok(stack.id)
@@ -595,7 +580,7 @@ impl OutputClaudeJson for Result<ClaudeHookOutput> {
 }
 
 fn stack_details(ctx: &Context, stack_id: StackId) -> anyhow::Result<StackDetails> {
-    let repo = ctx.open_repo_for_merging_non_persisting()?;
+    let repo = ctx.clone_repo_for_merging_non_persisting()?;
     let meta = VirtualBranchesTomlMetadata::from_path(
         ctx.project_data_dir().join("virtual_branches.toml"),
     )?;
@@ -603,7 +588,7 @@ fn stack_details(ctx: &Context, stack_id: StackId) -> anyhow::Result<StackDetail
 }
 
 fn list_stacks(ctx: &Context) -> anyhow::Result<Vec<StackEntry>> {
-    let repo = ctx.open_repo_for_merging_non_persisting()?;
+    let repo = ctx.clone_repo_for_merging_non_persisting()?;
     let meta = VirtualBranchesTomlMetadata::from_path(
         ctx.project_data_dir().join("virtual_branches.toml"),
     )?;

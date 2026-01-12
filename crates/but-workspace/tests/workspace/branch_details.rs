@@ -40,12 +40,12 @@ mod with_workspace {
             but_workspace::branch_details(&repo, refname("A").as_ref(), &store).unwrap(),
             @r#"
         BranchDetails {
-            name: "refs/heads/A",
+            name: "A",
+            reference: FullName(
+                "refs/heads/A",
+            ),
             linked_worktree_id: None,
             remote_tracking_branch: None,
-            description: Some(
-                "A: description",
-            ),
             pr_number: Some(
                 42,
             ),
@@ -89,13 +89,13 @@ mod with_workspace {
             .with_named_branch("A");
         insta::assert_debug_snapshot!(but_workspace::branch_details(&repo, refname("A").as_ref(), &store).unwrap(), @r#"
         BranchDetails {
-            name: "refs/heads/A",
+            name: "A",
+            reference: FullName(
+                "refs/heads/A",
+            ),
             linked_worktree_id: None,
             remote_tracking_branch: Some(
                 "refs/remotes/origin/A",
-            ),
-            description: Some(
-                "A: description",
             ),
             pr_number: Some(
                 42,
@@ -142,13 +142,13 @@ mod with_workspace {
             .with_named_branch("A");
         insta::assert_debug_snapshot!(but_workspace::branch_details(&repo, refname("A").as_ref(), &store).unwrap(), @r#"
         BranchDetails {
-            name: "refs/heads/A",
+            name: "A",
+            reference: FullName(
+                "refs/heads/A",
+            ),
             linked_worktree_id: None,
             remote_tracking_branch: Some(
                 "refs/remotes/origin/A",
-            ),
-            description: Some(
-                "A: description",
             ),
             pr_number: Some(
                 42,
@@ -180,10 +180,12 @@ mod with_workspace {
         // Remote tracking branches are OK to use as well.
         insta::assert_debug_snapshot!(but_workspace::branch_details(&repo, refname("origin/A").as_ref(), &store).unwrap(), @r#"
         BranchDetails {
-            name: "refs/remotes/origin/A",
+            name: "origin/A",
+            reference: FullName(
+                "refs/remotes/origin/A",
+            ),
             linked_worktree_id: None,
             remote_tracking_branch: None,
-            description: None,
             pr_number: None,
             review_id: None,
             tip: Sha1(89cc2d303514654e9cab2d05b9af08b420a740c1),
@@ -223,13 +225,13 @@ mod with_workspace {
             .with_named_branch("A");
         insta::assert_debug_snapshot!(but_workspace::branch_details(&repo, refname("A").as_ref(), &store).unwrap(), @r#"
         BranchDetails {
-            name: "refs/heads/A",
+            name: "A",
+            reference: FullName(
+                "refs/heads/A",
+            ),
             linked_worktree_id: None,
             remote_tracking_branch: Some(
                 "refs/remotes/origin/A",
-            ),
-            description: Some(
-                "A: description",
             ),
             pr_number: Some(
                 42,
@@ -291,7 +293,6 @@ mod with_workspace {
                     created_at: None,
                     updated_at: Some(gix::date::Time::new(56, 0)),
                 },
-                description: Some(format!("{short_name}: description")),
                 review: Review {
                     pull_request: Some(42),
                     review_id: Some("uuid".into()),

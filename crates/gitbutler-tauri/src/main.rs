@@ -228,6 +228,7 @@ fn main() -> anyhow::Result<()> {
                 github::tauri_clear_all_github_tokens::clear_all_github_tokens,
                 diff::tauri_commit_details::commit_details,
                 diff::tauri_commit_details_with_line_stats::commit_details_with_line_stats,
+                but_api::branch::tauri_branch_diff::branch_diff,
                 legacy::git::tauri_git_remote_branches::git_remote_branches,
                 legacy::git::tauri_delete_all_data::delete_all_data,
                 legacy::git::tauri_git_set_global_config::git_set_global_config,
@@ -295,7 +296,6 @@ fn main() -> anyhow::Result<()> {
                 legacy::stack::tauri_create_branch::create_branch,
                 legacy::stack::tauri_remove_branch::remove_branch,
                 legacy::stack::tauri_update_branch_name::update_branch_name,
-                legacy::stack::tauri_update_branch_description::update_branch_description,
                 legacy::stack::tauri_update_branch_pr_number::update_branch_pr_number,
                 legacy::stack::tauri_push_stack::push_stack,
                 legacy::stack::tauri_push_stack_to_review::push_stack_to_review,
@@ -347,7 +347,6 @@ fn main() -> anyhow::Result<()> {
                 legacy::workspace::tauri_split_branch::split_branch,
                 legacy::workspace::tauri_split_branch_into_dependent_branch::split_branch_into_dependent_branch,
                 legacy::diff::tauri_changes_in_worktree::changes_in_worktree,
-                legacy::diff::tauri_changes_in_branch::changes_in_branch,
                 legacy::diff::tauri_tree_change_diffs::tree_change_diffs,
                 legacy::diff::tauri_assign_hunk::assign_hunk,
                 #[cfg(unix)]
@@ -396,7 +395,10 @@ fn main() -> anyhow::Result<()> {
                 claude::claude_cancel_session,
                 claude::claude_is_stack_active,
                 claude::claude_compact_history,
-                commit::tauri_commit_reword::commit_reword
+                commit::tauri_commit_reword::commit_reword,
+                commit::tauri_commit_insert_blank::commit_insert_blank,
+                commit::tauri_commit_move_changes_between::commit_move_changes_between,
+
             ])
             .menu(move |handle| menu::build(handle, &app_settings_for_menu))
             .on_window_event(|window, event| match event {

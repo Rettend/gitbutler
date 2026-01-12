@@ -1,17 +1,17 @@
 use anyhow::{Context as _, Result};
-use but_core::DiffSpec;
+use but_core::{DiffSpec, RepositoryExt};
 use but_ctx::access::WorktreeWritePermission;
-use but_oxidize::{GixRepositoryExt as _, ObjectIdExt, OidExt};
+use but_oxidize::{ObjectIdExt, OidExt};
 use gitbutler_cherry_pick::GixRepositoryExt as _;
 use gitbutler_oplog::SnapshotExt;
-use gitbutler_repo::RepositoryExt;
+use gitbutler_repo::RepositoryExt as _;
 use gitbutler_repo_actions::RepoActionsExt;
 use gitbutler_stack::StackId;
 use gitbutler_workspace::workspace_base;
 use tracing::instrument;
 
 use super::{BranchManager, checkout_remerged_head};
-use crate::{VirtualBranchesExt, r#virtual as vbranch};
+use crate::VirtualBranchesExt;
 
 impl BranchManager<'_> {
     #[instrument(level = tracing::Level::DEBUG, skip(self, perm), err(Debug))]
@@ -59,7 +59,7 @@ impl BranchManager<'_> {
         stack.in_workspace = false;
         vb_state.set_stack(stack.clone())?;
 
-        let gix_repo = self.ctx.open_repo_for_merging()?;
+        let gix_repo = self.ctx.clone_repo_for_merging()?;
         if safe_checkout {
             // This reads the just stored data and re-merges it all stacks, excluding the unapplied one.
             let res = checkout_remerged_head(self.ctx, &gix_repo);
@@ -119,9 +119,6 @@ impl BranchManager<'_> {
         }
 
         vb_state.update_ordering()?;
-
-        vbranch::ensure_selected_for_changes(&vb_state)
-            .context("failed to ensure selected for changes")?;
 
         crate::integration::update_workspace_commit(&vb_state, self.ctx, false)
             .context("failed to update gitbutler workspace")?;

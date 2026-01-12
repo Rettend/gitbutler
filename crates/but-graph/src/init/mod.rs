@@ -522,13 +522,22 @@ impl Graph {
             )?;
             graph.extra_target = Some(sidx);
         }
-        for target_commit in additional_target_commits {
+        for target_commit_id in additional_target_commits {
+            // These are possibly from metadata, and thus might not exist (anymore). Ignore if that's the case.
+            if let Err(err) = repo.find_commit(target_commit_id) {
+                tracing::warn!(
+                    ?target_commit_id,
+                    ?err,
+                    "Ignoring stale target commit id as it didn't exist"
+                );
+                continue;
+            }
             // We don't really have a place to store the segment index of the segment owning the target commit
             // so we will re-acquire it later when building the workspace projection.
             let _sidx_to_be_reobtained_later = add_extra_target(
                 &mut graph,
                 &mut next,
-                target_commit,
+                target_commit_id,
                 meta,
                 &ctx,
                 target_limit,
@@ -556,6 +565,10 @@ impl Graph {
                 // Avoid duplication before we create a new branch segment, these should not interfere,
                 // just integrate.
                 if next.iter().any(|t| t.0 == segment_tip) {
+                    next.add_goal_to(
+                        segment_tip.detach(),
+                        goals.flag_for(tip).unwrap_or_default(),
+                    );
                     continue;
                 };
                 // We always want these segments named, we know they are supposed to be in the workspace,
@@ -587,7 +600,7 @@ impl Graph {
                     segment_tip.detach(),
                     CommitFlags::NotInRemote,
                     Instruction::CollectCommit { into: segment },
-                    max_limit,
+                    max_limit.with_indirect_goal(tip, &mut goals),
                 ));
             }
         }

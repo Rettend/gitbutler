@@ -6,19 +6,18 @@ use std::{
 };
 
 use anyhow::{Context as _, Result, anyhow, bail};
-use but_core::{TreeChange, diff::tree_changes};
+use but_core::{RepositoryExt, TreeChange, diff::tree_changes};
 use but_ctx::{
     Context,
     access::{WorktreeReadPermission, WorktreeWritePermission},
 };
 use but_meta::virtual_branches_legacy_types;
 use but_oxidize::{
-    GixRepositoryExt, ObjectIdExt as _, OidExt, git2_to_gix_object_id, gix_time_to_git2,
-    gix_to_git2_oid,
+    ObjectIdExt as _, OidExt, git2_to_gix_object_id, gix_time_to_git2, gix_to_git2_oid,
 };
 use git2::FileMode;
 use gitbutler_cherry_pick::RepositoryExtLite;
-use gitbutler_repo::{RepositoryExt, SignaturePurpose};
+use gitbutler_repo::{RepositoryExt as _, SignaturePurpose};
 use gitbutler_stack::{VirtualBranchesHandle, VirtualBranchesState};
 use gix::{ObjectId, bstr::ByteSlice, prelude::ObjectIdExt};
 use tracing::instrument;
@@ -105,6 +104,7 @@ pub trait OplogExt {
         limit: usize,
         oplog_commit_id: Option<git2::Oid>,
         exclude_kind: Vec<OperationKind>,
+        include_kind: Option<Vec<OperationKind>>,
     ) -> Result<Vec<Snapshot>>;
 
     /// Reverts to a previous state of the working directory, virtual branches and commits.
@@ -174,7 +174,7 @@ impl OplogExt for Context {
 
     #[instrument(skip(self), err(Debug))]
     fn get_snapshot(&self, sha: git2::Oid) -> Result<Snapshot> {
-        let repo = self.open_repo_for_merging()?;
+        let repo = self.clone_repo_for_merging()?;
         let commit = repo.find_commit(sha.to_gix())?;
         let commit_time = gix_time_to_git2(commit.time()?);
         let details = commit
@@ -198,8 +198,9 @@ impl OplogExt for Context {
         limit: usize,
         oplog_commit_id: Option<git2::Oid>,
         exclude_kind: Vec<OperationKind>,
+        include_kind: Option<Vec<OperationKind>>,
     ) -> Result<Vec<Snapshot>> {
-        let repo = self.open_repo_for_merging()?;
+        let repo = self.clone_repo_for_merging()?;
         let traversal_root_id = git2_to_gix_object_id(match oplog_commit_id {
             Some(id) => id,
             None => {
@@ -247,9 +248,19 @@ impl OplogExt for Context {
                 .ok()
                 .and_then(|msg| SnapshotDetails::from_str(msg).ok());
             let commit_time = gix_time_to_git2(commit.time()?);
-            if let Some(details) = &details
-                && exclude_kind.contains(&details.operation)
-            {
+            if let Some(details) = &details {
+                // Skip if this kind is excluded
+                if exclude_kind.contains(&details.operation) {
+                    continue;
+                }
+                // Skip if include filter is set and this kind is not included
+                if let Some(ref include) = include_kind
+                    && !include.contains(&details.operation)
+                {
+                    continue;
+                }
+            } else if include_kind.is_some() {
+                // If we require specific kinds but have no details, skip
                 continue;
             }
 
@@ -276,7 +287,7 @@ impl OplogExt for Context {
     }
 
     fn snapshot_diff(&self, sha: git2::Oid) -> Result<Vec<TreeChange>> {
-        let gix_repo = self.open_repo_for_merging()?;
+        let gix_repo = self.clone_repo_for_merging()?;
         let repo = self.git2_repo.get()?;
 
         let commit = repo.find_commit(sha)?;
@@ -610,7 +621,7 @@ fn restore_snapshot(
         "We will not change a worktree which for some reason isn't on the workspace branch",
     )?;
 
-    let gix_repo = ctx.open_repo_for_merging()?;
+    let gix_repo = ctx.clone_repo_for_merging()?;
 
     let workdir_tree = git2_repo.find_tree(
         get_workdir_tree(None, snapshot_commit_id.to_gix(), &gix_repo, ctx)?.to_git2(),

@@ -11,7 +11,10 @@ use petgraph::{
     visit::{IntoEdgeReferences, Visitable},
 };
 
-use crate::{Commit, CommitIndex, Edge, EntryPoint, Graph, Segment, SegmentIndex, init::PetGraph};
+use crate::{
+    Commit, CommitIndex, Edge, EntryPoint, Graph, Segment, SegmentIndex, init::PetGraph,
+    projection::commit::is_managed_workspace_by_message,
+};
 
 /// Mutation
 impl Graph {
@@ -186,6 +189,25 @@ impl Graph {
     /// The first commit reachable by skipping over empty segments starting at the entrypoint segment.
     pub fn entrypoint_commit(&self) -> Option<&Commit> {
         self.tip_skip_empty(self.entrypoint?.0)
+    }
+
+    /// Return the entry-point commit of this graph if it is a
+    /// [managed](is_managed_workspace_by_message) workspace commit.
+    ///
+    /// The entry-point commit is obtained via [`Self::entrypoint_commit()`].
+    /// Note that managed workspace commits are owned by GitButler.
+    /// The `repo` is used to look up the entrypoint commit and to obtain its message.
+    pub fn managed_entrypoint_commit(
+        &self,
+        repo: &gix::Repository,
+    ) -> anyhow::Result<Option<&Commit>> {
+        let Some(ec) = self.entrypoint_commit() else {
+            return Ok(None);
+        };
+
+        let commit = repo.find_commit(ec.id)?;
+        let message = commit.message_raw()?;
+        Ok(is_managed_workspace_by_message(message).then_some(ec))
     }
 
     /// Visit the ancestry of `start` along the first parents, itself excluded, until `stop` returns `true`.

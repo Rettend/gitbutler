@@ -8,6 +8,8 @@ pub mod reword;
 pub use reword::function::reword;
 pub mod insert_blank_commit;
 pub use insert_blank_commit::function::insert_blank_commit;
+pub mod move_changes;
+pub use move_changes::function::{MoveChangesOutcome, move_changes_between_commits};
 
 /// A minimal stack for use by [WorkspaceCommit::new_from_stacks()].
 #[derive(Clone)]
@@ -34,9 +36,11 @@ impl std::fmt::Debug for Stack {
 /// Structures related to creating a merge-commit along with the respective tree.
 pub mod merge {
     use anyhow::{Context as _, bail};
-    use but_core::ref_metadata::{MaybeDebug, WorkspaceCommitRelation};
+    use but_core::{
+        RepositoryExt,
+        ref_metadata::{MaybeDebug, WorkspaceCommitRelation},
+    };
     use but_graph::SegmentIndex;
-    use but_oxidize::GixRepositoryExt;
     use gix::prelude::ObjectIdExt;
     use tracing::instrument;
 
@@ -414,7 +418,7 @@ pub mod merge {
     ) -> anyhow::Result<(gix::ObjectId, SegmentIndex)> {
         let base_sidx = graph.first_merge_base(left, right).with_context(|| {
             format!(
-                "Couldn't find merge-base between segments {l} and {r}",
+                "Couldn't find merge-base between segments {l} and {r} - they are disjoint in the commit-graph",
                 l = left.index(),
                 r = right.index()
             )

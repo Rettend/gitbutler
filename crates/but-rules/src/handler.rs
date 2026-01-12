@@ -39,7 +39,7 @@ pub fn process_workspace_rules(
         return Ok(updates);
     }
 
-    let repo = ctx.open_repo_for_merging_non_persisting()?;
+    let repo = ctx.clone_repo_for_merging_non_persisting()?;
     let stacks_in_ws = {
         let meta = VirtualBranchesTomlMetadata::from_path(
             ctx.project_data_dir().join("virtual_branches.toml"),
@@ -80,7 +80,7 @@ fn handle_amend(
 ) -> anyhow::Result<()> {
     let changes: Vec<DiffSpec> = assignments.into_iter().map(|a| a.into()).collect();
     let mut guard = ctx.exclusive_worktree_access();
-    let repo = ctx.open_repo_for_merging()?;
+    let repo = ctx.clone_repo_for_merging()?;
 
     let meta = VirtualBranchesTomlMetadata::from_path(
         ctx.project_data_dir().join("virtual_branches.toml"),
@@ -171,9 +171,7 @@ fn create_stack(ctx: &Context) -> anyhow::Result<StackId> {
         gitbutler_stack::Stack::next_available_name(&*ctx.repo.get()?, vb_state, template, false)?;
     let create_req = gitbutler_branch::BranchCreateRequest {
         name: Some(branch_name),
-        ownership: None,
         order: None,
-        selected_for_changes: None,
     };
 
     let mut guard = ctx.exclusive_worktree_access();

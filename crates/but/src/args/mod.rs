@@ -9,7 +9,12 @@
 use std::path::PathBuf;
 
 #[derive(Debug, clap::Parser)]
-#[clap(name = "but", about = "A GitButler CLI tool", version = option_env!("VERSION").unwrap_or("dev"))]
+#[clap(
+    name = "but",
+    about = "A GitButler CLI tool",
+    version = option_env!("VERSION").unwrap_or("dev"),
+    disable_help_subcommand = true
+)]
 pub struct Args {
     /// Enable tracing for debug and performance information printed to stderr.
     #[clap(short = 't', long, action = clap::ArgAction::Count, hide = true, env = "BUT_TRACE")]
@@ -62,7 +67,7 @@ pub enum OutputFormat {
 pub enum Subcommands {
     /// Overview of the project workspace state.
     ///
-    /// This shows unassigned files, files assigned to stacks, all applied
+    /// This shows unstaged files, files staged to stacks, all applied
     /// branches (stacked or parallel), commits on each of those branches,
     /// upstream commits that are unintegrated, commit status (pushed or local),
     /// and base branch information.
@@ -82,7 +87,6 @@ pub enum Subcommands {
     /// ```
     ///
     #[cfg(feature = "legacy")]
-    #[clap(alias = "st")]
     Status {
         /// Determines whether the committed files should be shown as well.
         #[clap(short = 'f', alias = "files", default_value_t = false)]
@@ -90,32 +94,23 @@ pub enum Subcommands {
         /// Show verbose output with commit author and timestamp.
         #[clap(short = 'v', long = "verbose", default_value_t = false)]
         verbose: bool,
-        /// Show the forge review information
-        #[clap(short = 'r', long = "review", default_value_t = false)]
-        review: bool,
+        /// Forces a sync of pull requests from the forge before showing status.
+        #[clap(short = 'r', long = "refresh-prs", default_value_t = false)]
+        refresh_prs: bool,
+        /// Show detailed list of upstream commits that haven't been integrated yet.
+        #[clap(short = 'u', long = "upstream", default_value_t = false)]
+        upstream: bool,
+        /// Show a hint about available commands at the end of output.
+        #[clap(long = "hint", default_value_t = false)]
+        hint: bool,
     },
 
-    /// Overview of the uncommitted changes in the repository with files shown.
-    ///
-    /// Equivalent to `but status --files`.
-    ///
-    #[cfg(feature = "legacy")]
-    #[clap(hide = true)]
-    Stf {
-        /// Show verbose output with commit author and timestamp.
-        #[clap(short = 'v', long = "verbose", default_value_t = false)]
-        verbose: bool,
-        /// Show the forge review information
-        #[clap(short = 'r', long = "review", default_value_t = false)]
-        review: bool,
-    },
-
-    /// Combines two entities together to perform an operation like amend, squash, assign, or move.
+    /// Combines two entities together to perform an operation like amend, squash, stage, or move.
     ///
     /// The `rub` command is a simple verb that helps you do a number of editing
     /// operations by doing combinations of two things.
     ///
-    /// For example, you can "rub" a file onto a branch to assign that file to
+    /// For example, you can "rub" a file onto a branch to stage that file to
     /// the branch. You can also "rub" a commit onto another commit to squash
     /// them together. You can rub a commit onto a branch to move that commit.
     /// You can rub a file from one commit to another.
@@ -127,7 +122,7 @@ pub enum Subcommands {
     /// ──────┼───────────┼──────
     /// Amend │File,Branch│Commit
     /// Squash│Commit     │Commit
-    /// Assign│File,Branch│Branch
+    /// Stage │File,Branch│Branch
     /// Move  │Commit     │Branch
     /// ```
     ///
@@ -159,6 +154,46 @@ pub enum Subcommands {
         target: String,
     },
 
+    /// Displays the diff of changes in the repo.
+    ///
+    /// Without any arguments, it shows the diff of all uncommitted changes.
+    /// Optionally, a CLI ID argument can be provided, which chan show the diff specific to
+    /// - an uncommitted file
+    /// - a branch
+    /// - an entire stack
+    /// - a commit
+    /// - a file change within a commit
+    #[cfg(feature = "legacy")]
+    Diff {
+        /// The CLI ID of the entity to show the diff for
+        target: Option<String>,
+    },
+
+    /// Shows detailed information about a commit.
+    ///
+    /// Displays the full commit message, author information, committer information
+    /// (if different from author), and the list of files modified in the commit.
+    ///
+    /// ## Examples
+    ///
+    /// Show commit details by short commit ID:
+    ///
+    /// ```text
+    /// but show a1b2c3d
+    /// ```
+    ///
+    /// Show commit details by CLI ID:
+    ///
+    /// ```text
+    /// but show c5
+    /// ```
+    ///
+    #[cfg(feature = "legacy")]
+    Show {
+        /// The commit ID (short or full SHA) or CLI ID to show details for
+        commit: String,
+    },
+
     /// Initializes a GitButler project from a git repository in the current directory.
     ///
     /// If you have an existing Git repository and want to start using GitButler
@@ -181,25 +216,23 @@ pub enum Subcommands {
         repo: bool,
     },
 
-    /// Commands for managing the base target branch.
+    /// Updates all applied branches to be up to date with the target branch.
     ///
-    /// Every branch managed by GitButler is based off a common base branch on
-    /// your remote repository (usually `origin/main` or `origin/master`). This
-    /// is the target branch that all changes will eventually be integrated into.
+    /// This fetches the latest changes from the remote and rebases all applied branches
+    /// on top of the updated target branch.
     ///
-    /// The `base` subcommand allows you to manage and update this base branch.
+    /// You should run this regularly to keep your branches up to date with the latest
+    /// changes from the main development line.
     ///
-    /// When you run `but base update`, GitButler will fetch the latest changes
-    /// from the remote and rebase all your applied branches on top of the updated
-    /// base branch. You will want to do this regularly to keep your branches
-    /// up to date with the latest changes from the main development line.
-    ///
-    /// You can also use `but base check` to verify that your branches
-    /// can be cleanly merged into the base branch without conflicts and see
-    /// what work is upstream an not yet integrated into your branches.
+    /// You can run `but pull --check` first to see if your branches can be cleanly
+    /// merged into the target branch before running the update.
     ///
     #[cfg(feature = "legacy")]
-    Base(base::Platform),
+    Pull {
+        /// Only check the status without updating (equivalent to the old `but base check`)
+        #[clap(long, short = 'c')]
+        check: bool,
+    },
 
     /// Commands for managing branches.
     ///
@@ -223,13 +256,13 @@ pub enum Subcommands {
     #[clap(hide = true)]
     Worktree(worktree::Platform),
 
-    /// Mark a commit or branch for auto-assign or auto-commit.
+    /// Mark a commit or branch for auto-stage or auto-commit.
     ///
-    /// Creates or removes a rule for auto-assigning or auto-committing changes
+    /// Creates or removes a rule for auto-staging or auto-committing changes
     /// to the specified target entity.
     ///
-    /// If you mark a branch, new unassigned changes that GitButler sees when
-    /// you run any command will be automatically assigned to that branch.
+    /// If you mark a branch, new unstaged changes that GitButler sees when
+    /// you run any command will be automatically staged to that branch.
     ///
     /// If you mark a commit, new uncommitted changes will automatically be
     /// amended into the marked commit.
@@ -273,11 +306,11 @@ pub enum Subcommands {
     /// If there are multiple branches applied, you must specify which branch to
     /// commit to, or if in interactive mode, you will be prompted to select one.
     ///
-    /// By default, all uncommitted changes and all changes already assigned to that
+    /// By default, all uncommitted changes and all changes already staged to that
     /// branch will be included in the commit. If you only want to commit the changes
-    /// that are already assigned to that branch, you can use the `--only` flag.
+    /// that are already staged to that branch, you can use the `--only` flag.
     ///
-    /// It will not commit changes assigned to other branches.
+    /// It will not commit changes staged to other branches.
     ///
     #[cfg(feature = "legacy")]
     Commit {
@@ -299,7 +332,7 @@ pub enum Subcommands {
         /// If no branch name is given, a new branch with a generated name will be created.
         #[clap(short = 'c', long = "create")]
         create: bool,
-        /// Only commit assigned files, not unassigned files
+        /// Only commit staged files, not unstaged files
         #[clap(short = 'o', long = "only")]
         only: bool,
     },
@@ -307,14 +340,15 @@ pub enum Subcommands {
     /// Push changes in a branch to remote.
     ///
     /// `but push` will update the remote with the latest commits from the
-    /// specified branch.
+    /// applied branch(es).
     ///
-    /// Whatever the upstream remote is configured for the base branch,
-    /// that will be used as the remote to push to.
+    /// Without a branch ID:
+    /// - Interactive mode: Lists all branches with unpushed commits and prompts for selection
+    /// - Non-interactive mode: Automatically pushes all branches with unpushed commits
     ///
-    /// If you have another remote you want to push to that is different from
-    /// the target remote (for example, a fork of an open source project), you
-    /// can set it in the GitButler project settings. (Currently only via the GUI.)
+    /// With a branch ID:
+    /// - `but push bu` - push the branch with CLI ID "bu"
+    /// - `but push feature-branch` - push the branch named "feature-branch"
     ///
     #[cfg(feature = "legacy")]
     Push(push::Command),
@@ -340,17 +374,16 @@ pub enum Subcommands {
     /// Edit the commit message of the specified commit.
     ///
     /// You can easily change the commit message of any of your commits by
-    /// running `but describe <commit-id>` and providing a new message in the
+    /// running `but reword <commit-id>` and providing a new message in the
     /// editor.
     ///
     /// This will rewrite the commit with the new message and then rebase any
     /// dependent commits on top of it.
     ///
-    /// You can also use `but describe <branch-id>` to rename the branch.
+    /// You can also use `but reword <branch-id>` to rename the branch.
     ///
     #[cfg(feature = "legacy")]
-    #[clap(alias = "desc")]
-    Describe {
+    Reword {
         /// Commit ID to edit the message for, or branch ID to rename
         target: String,
         /// The new commit message or branch name. If not provided, opens an editor.
@@ -358,7 +391,7 @@ pub enum Subcommands {
         message: Option<String>,
     },
 
-    /// Show operation history.
+    /// Commands for viewing and managing operation history.
     ///
     /// Displays a list of past operations performed in the repository,
     /// including their timestamps and descriptions.
@@ -368,12 +401,10 @@ pub enum Subcommands {
     ///
     /// You can use `but restore <oplog-sha>` to restore to a specific state.
     ///
+    /// By default, shows the last 20 oplog entries (same as `but oplog list`).
+    ///
     #[cfg(feature = "legacy")]
-    Oplog {
-        /// Start from this oplog SHA instead of the head
-        #[clap(long)]
-        since: Option<String>,
-    },
+    Oplog(oplog::Platform),
 
     /// Restore to a specific oplog snapshot.
     ///
@@ -400,47 +431,54 @@ pub enum Subcommands {
     #[cfg(feature = "legacy")]
     Undo,
 
-    /// Create an on-demand snapshot with optional message.
-    ///
-    /// This allows you to create a named snapshot of the current state, which
-    /// can be helpful to always be able to return to a known good state.
-    ///
-    /// You can provide an optional message to describe the snapshot.
-    ///
-    #[cfg(feature = "legacy")]
-    Snapshot {
-        /// Message to include with the snapshot
-        #[clap(short = 'm', long = "message")]
-        message: Option<String>,
-    },
-
     /// Amends changes into the appropriate commits where they belong.
     ///
     /// The semantic for finding "the appropriate commit" is as follows:
     ///
     /// - Changes are amended into the topmost commit of the leftmost (first) lane (branch)
-    /// - If a change is assigned to a particular lane (branch), it will be amended into a commit there
+    /// - If a change is staged to a particular lane (branch), it will be amended into a commit there
     /// - If there are no commits in this branch, a new commit is created
     /// - If a change has a dependency to a particular commit, it will be amended into that particular commit
     ///
     /// Optionally an identifier to an Uncommitted File or a Branch (stack) may be provided.
     ///
     /// - If an Uncommitted File id is provided, absorb will be performed for just that file
-    /// - If a Branch (stack) id is provided, absorb will be performed for all changes assigned to that stack
+    /// - If a Branch (stack) id is provided, absorb will be performed for all changes staged to that stack
     /// - If no source is provided, absorb is performed for all uncommitted changes
     ///
     #[cfg(feature = "legacy")]
     Absorb {
         /// If the Source is an uncommitted change - the change will be absorbed.
-        /// If the Source is a stack - anything assigned to the stack will be absorbed accordingly.
+        /// If the Source is a stack - anything staged to the stack will be absorbed accordingly.
         /// If not provided, everything that is uncommitted will be absorbed.
         source: Option<String>,
+    },
+
+    /// Discard uncommitted changes from the worktree.
+    ///
+    /// This command permanently discards changes to files, restoring them to their
+    /// state in the HEAD commit. Use this to undo unwanted modifications.
+    ///
+    /// The ID parameter should be a file ID as shown in `but status`. You can
+    /// discard a whole file or specific hunks within a file.
+    ///
+    /// ## Examples
+    ///
+    /// Discard all changes to a file:
+    ///
+    /// ```text
+    /// but discard a1
+    /// ```
+    #[cfg(feature = "legacy")]
+    Discard {
+        /// The ID of the file or hunk to discard (as shown in `but status`)
+        id: String,
     },
 
     /// Commands for interacting with forges like GitHub, GitLab (coming soon), etc.
     ///
     /// The `but forge` tools allow you to authenticate with a forge from the CLI,
-    /// which then enables features like creating pull requests with the `but review`
+    /// which then enables features like creating pull requests with the `but pr`
     /// commands.
     ///
     /// Start by running `but forge auth` to authenticate with your forge.
@@ -453,14 +491,35 @@ pub enum Subcommands {
     ///
     Forge(forge::integration::Platform),
 
-    /// Commands for creating and publishing code reviews to a forge.
+    /// Commands for creating and managing pull requests on a forge.
     ///
     /// If you are authenticated with a forge using `but forge auth`, you can use
-    /// the `but review` commands to create pull requests (or merge requests) on
+    /// the `but pr` commands to create pull requests (or merge requests) on
     /// the remote repository for your branches.
     ///
+    /// Running `but pr` without a subcommand defaults to `but pr new`, which
+    /// will prompt you to select a branch to create a PR for.
+    ///
     #[cfg(feature = "legacy")]
-    Review(forge::review::Platform),
+    #[clap(visible_alias = "review")]
+    Pr(forge::pr::Platform),
+
+    /// Trigger a refresh of remote data fetching from the remote, Pull Requests, and CI status.
+    ///
+    /// This is a hidden command primarily used for background sync operations.
+    #[cfg(feature = "legacy")]
+    #[clap(hide = true)]
+    RefreshRemoteData {
+        /// Whether to also refresh git fetch from the remote.
+        #[clap(long, default_value_t = false)]
+        fetch: bool,
+        /// Whether to also refresh Pull Requests from the forge.
+        #[clap(long, default_value_t = false)]
+        pr: bool,
+        /// Whether to also refresh CI status from the forge.
+        #[clap(long, default_value_t = false)]
+        ci: bool,
+    },
 
     /// AI: Starts up the MCP server.
     ///
@@ -523,7 +582,132 @@ pub enum Subcommands {
         #[clap(value_enum)]
         shell: Option<clap_complete::Shell>,
     },
+
+    /// Manage command aliases.
+    ///
+    /// Aliases allow you to create shortcuts for commonly used commands.
+    /// They are stored in git config under the `but.alias.*` namespace.
+    ///
+    /// ## Examples
+    ///
+    /// List all configured aliases:
+    ///
+    /// ```text
+    /// but alias
+    /// ```
+    ///
+    /// Create a new alias:
+    ///
+    /// ```text
+    /// but alias add st status
+    /// but alias add stv "status --verbose"
+    /// ```
+    ///
+    /// Remove an alias:
+    ///
+    /// ```text
+    /// but alias remove st
+    /// ```
+    ///
+    Alias(alias::Platform),
+
+    /// Resolve conflicts in a commit.
+    ///
+    /// When a commit is in a conflicted state (marked with conflicts during rebase),
+    /// use this command to enter resolution mode, resolve the conflicts, and finalize.
+    ///
+    /// ## Workflow
+    ///
+    /// 1. Enter resolution mode: `but resolve <commit-id>`
+    /// 2. Resolve conflicts in your editor (remove conflict markers)
+    /// 3. Check remaining conflicts: `but resolve status`
+    /// 4. Finalize resolution: `but resolve finish`
+    ///    Or cancel: `but resolve cancel`
+    ///
+    /// When in resolution mode, `but status` will also show that you're resolving conflicts.
+    ///
+    #[cfg(feature = "legacy")]
+    Resolve {
+        /// Subcommand to run (defaults to entering resolution mode)
+        #[clap(subcommand)]
+        cmd: Option<resolve::Subcommands>,
+        /// Commit ID to enter resolution mode for (when no subcommand is provided)
+        commit: Option<String>,
+    },
+
+    /// Hidden command that redirects to `but pull --check`
+    #[cfg(feature = "legacy")]
+    #[clap(hide = true)]
+    Fetch,
+
+    /// Squash two commits together.
+    ///
+    /// Wrapper for `but rub <commit1> <commit2>`.
+    #[cfg(feature = "legacy")]
+    Squash {
+        /// First commit ID (will be squashed into the second)
+        commit1: String,
+        /// Second commit ID (target commit)
+        commit2: String,
+        /// Drop the first commit's message and keep only the second commit's message
+        #[clap(long, short = 'd')]
+        drop_message: bool,
+    },
+
+    /// Uncommit changes from a commit or file-in-commit to the unstaged area.
+    ///
+    /// Wrapper for `but rub <source> zz`.
+    #[cfg(feature = "legacy")]
+    Uncommit {
+        /// Commit ID or file-in-commit ID to uncommit
+        source: String,
+    },
+
+    /// Amend a file change into a specific commit and rebases any dependent commits.
+    ///  
+    /// Wrapper for `but rub <file> <commit>`.
+    #[cfg(feature = "legacy")]
+    Amend {
+        /// File ID to amend
+        file: String,
+        /// Commit ID to amend into
+        commit: String,
+    },
+
+    /// Stages a file or hunk to a specific branch.
+    ///
+    /// Wrapper for `but rub <file-or-hunk> <branch>`.
+    #[cfg(feature = "legacy")]
+    Stage {
+        /// File or hunk ID to stage
+        file_or_hunk: String,
+        /// Branch ID to stage to
+        branch: String,
+    },
+
+    /// Unstages a file or hunk from a branch.
+    ///
+    /// Wrapper for `but rub <file-or-hunk> zz`.
+    #[cfg(feature = "legacy")]
+    #[clap(hide = true)]
+    Unstage {
+        /// File or hunk ID to unstage
+        file_or_hunk: String,
+        /// Branch ID to unstage from (optional, for validation)
+        #[clap(required = false)]
+        branch: Option<String>,
+    },
+
+    /// Show help information grouped by category.
+    ///
+    /// Displays all available commands organized into functional categories
+    /// such as Inspection, Branching and Committing, Server Interactions, etc.
+    ///
+    /// This is equivalent to running `but -h` to see the command overview.
+    Help,
 }
+
+pub mod alias;
 
 pub mod actions {
     #[derive(Debug, clap::Parser)]
@@ -553,7 +737,11 @@ pub mod actions {
 
 pub mod forge;
 pub mod metrics;
+#[cfg(feature = "legacy")]
+pub mod oplog;
 pub mod push;
+#[cfg(feature = "legacy")]
+pub mod resolve;
 
 pub mod claude {
     #[derive(Debug, clap::Parser)]
@@ -597,40 +785,6 @@ pub mod cursor {
             #[clap(long, default_value = "false")]
             nightly: bool,
         },
-    }
-}
-
-pub mod base {
-    #[derive(Debug, clap::Parser)]
-    pub struct Platform {
-        #[clap(subcommand)]
-        pub cmd: Subcommands,
-    }
-
-    #[derive(Debug, clap::Subcommand)]
-    pub enum Subcommands {
-        /// Fetches from the remote and checks the mergeability of the branches in the workspace.
-        ///
-        /// This will see if the target branch has had new work merged into it, and if so,
-        /// it will check if each branch in the workspace can be cleanly merged into the updated
-        /// target branch.
-        ///
-        /// It will also show what work is upstream that has not yet been integrated into the branches.
-        ///
-        Check,
-
-        /// Updates all applied branches to be up to date with the target branch
-        ///
-        /// This fetches the latest changes from the remote and rebases all applied branches
-        /// on top of the updated target branch.
-        ///
-        /// You should run this regularly to keep your branches up to date with the latest
-        /// changes from the main development line.
-        ///
-        /// You can run `but base check` first to see if your branches can be cleanly
-        /// merged into the target branch before running the update.
-        ///
-        Update,
     }
 }
 

@@ -1,8 +1,9 @@
-use crate::{CliId, IdMap, id::UintId};
 use anyhow::bail;
 use bstr::BString;
 use but_hunk_assignment::HunkAssignment;
 use but_testsupport::{hex_to_id, hunk_header};
+
+use crate::{CliId, IdMap, id::UintId};
 
 #[test]
 fn uint_id_from_short_id() -> anyhow::Result<()> {
@@ -46,18 +47,25 @@ fn uint_id_to_short_id() -> anyhow::Result<()> {
 fn commit_id_works_with_two_or_more_characters() -> anyhow::Result<()> {
     let id1 = id(1);
     let stacks = &[stack([segment("not-important", [id1], None, [])])];
-    let id_map = IdMap::new_for_branches_and_commits(stacks)?;
+    let id_map = IdMap::new(stacks, Vec::new())?;
     insta::assert_debug_snapshot!(id_map.debug_state(), @r"
     workspace_and_remote_commits_count: 1
     branches: [ no ]
     ");
 
-    let expected = [CliId::Commit(id1)];
+    let expected = [CliId::Commit {
+        commit_id: id1,
+        id: "01".to_string(),
+    }];
     assert_eq!(
         id_map.resolve_entity_to_ids("01")?,
         expected,
         "two characters are sufficient to parse a commit ID"
     );
+    let expected = [CliId::Commit {
+        commit_id: id1,
+        id: "010".to_string(),
+    }];
     assert_eq!(
         id_map.resolve_entity_to_ids("010")?,
         expected,
@@ -71,26 +79,31 @@ fn commit_id_works_with_two_or_more_characters() -> anyhow::Result<()> {
     Ok(())
 }
 
-// TODO: is there a way to produce globally unique ids for commits as well?
-//       Should be if we prepare them in advance.
 #[test]
-fn commit_ids_are_currently_ambiguous() -> anyhow::Result<()> {
+fn commit_ids_become_longer_if_ambiguous() -> anyhow::Result<()> {
     let id1 = hex_to_id("21aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     let id2 = hex_to_id("21bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-    let stacks = &[stack([segment("not-important", [id1, id2], None, [])])];
-    let id_map = IdMap::new_for_branches_and_commits(stacks)?;
+    let id3 = hex_to_id("21bccccccccccccccccccccccccccccccccccccc");
+    let stacks = &[stack([segment("not-important", [id1, id2, id3], None, [])])];
+    let id_map = IdMap::new(stacks, Vec::new())?;
     insta::assert_debug_snapshot!(id_map.debug_state(), @r"
-    workspace_and_remote_commits_count: 2
+    workspace_and_remote_commits_count: 3
     branches: [ no ]
     ");
     insta::assert_debug_snapshot!(id_map.all_ids(), @r#"
     [
-        Commit(
-            Sha1(21aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa),
-        ),
-        Commit(
-            Sha1(21bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb),
-        ),
+        Commit {
+            commit_id: Sha1(21aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa),
+            id: "21a",
+        },
+        Commit {
+            commit_id: Sha1(21bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb),
+            id: "21bb",
+        },
+        Commit {
+            commit_id: Sha1(21bccccccccccccccccccccccccccccccccccccc),
+            id: "21bc",
+        },
         Branch {
             name: "not-important",
             id: "no",
@@ -104,8 +117,9 @@ fn commit_ids_are_currently_ambiguous() -> anyhow::Result<()> {
         .collect::<Vec<_>>();
     insta::assert_debug_snapshot!(ids_as_shown_by_consumers, @r#"
     [
-        "21",
-        "21",
+        "21a",
+        "21bb",
+        "21bc",
         "no",
     ]
     "#);
@@ -115,7 +129,7 @@ fn commit_ids_are_currently_ambiguous() -> anyhow::Result<()> {
 #[test]
 fn branches_work_with_single_character() -> anyhow::Result<()> {
     let stacks = &[stack([segment("f", [id(1)], None, [])])];
-    let id_map = IdMap::new_for_branches_and_commits(stacks)?;
+    let id_map = IdMap::new(stacks, Vec::new())?;
     insta::assert_debug_snapshot!(id_map.debug_state(), @r"
     workspace_and_remote_commits_count: 1
     branches: [ g0 ]
@@ -147,7 +161,7 @@ fn branches_match_by_substring() -> anyhow::Result<()> {
         segment("baz", [id(4)], None, []),
     ])];
 
-    let id_map = IdMap::new_for_branches_and_commits(stacks)?;
+    let id_map = IdMap::new(stacks, Vec::new())?;
     insta::assert_debug_snapshot!(id_map.debug_state(), @r"
     workspace_and_remote_commits_count: 4
     branches: [ az, g0, h0, i0 ]
@@ -182,42 +196,22 @@ fn branches_match_by_substring() -> anyhow::Result<()> {
 }
 
 #[test]
-fn multiple_zeroes_as_unassigned_area() -> anyhow::Result<()> {
-    let id_map = IdMap::new_for_branches_and_commits(&[])?;
-    insta::assert_debug_snapshot!(id_map.debug_state(), @"workspace_and_remote_commits_count: 0");
-
-    assert_eq!(
-        id_map.resolve_entity_to_ids("000")?,
-        [CliId::Unassigned { id: "00".into() }],
-        "any number of 0s interpreted as the unassigned area"
-    );
-    Ok(())
-}
-
-#[test]
-fn unassigned_area_id_is_unambiguous() -> anyhow::Result<()> {
-    let stacks = &[stack([segment("branch001", [id(1)], None, [])])];
-    let id_map = IdMap::new_for_branches_and_commits(stacks)?;
+fn branches_avoid_unassigned_area_id() -> anyhow::Result<()> {
+    let stacks = &[stack([segment("zza", [id(1)], None, [])])];
+    let id_map = IdMap::new(stacks, Vec::new())?;
     insta::assert_debug_snapshot!(id_map.debug_state(), @r"
     workspace_and_remote_commits_count: 1
-    branches: [ br ]
+    branches: [ za ]
     ");
 
+    let expected = [CliId::Branch {
+        name: "zza".into(),
+        id: "za".into(),
+    }];
     assert_eq!(
-        id_map.unassigned().to_short_string(),
-        "000",
-        "the ID of the unassigned area should have enough 0s to be unambiguous"
-    );
-    assert_eq!(
-        id_map.resolve_entity_to_ids("00")?,
-        [
-            CliId::Branch {
-                name: "branch001".into(),
-                id: "br".into()
-            },
-            CliId::Unassigned { id: "000".into() }
-        ],
-        "as 00 is matching the substring of a branch now, but also unassigned"
+        id_map.resolve_entity_to_ids("za")?,
+        expected,
+        "avoids unassigned area ID (zz)"
     );
     Ok(())
 }
@@ -226,9 +220,9 @@ fn unassigned_area_id_is_unambiguous() -> anyhow::Result<()> {
 fn branches_avoid_invalid_ids() -> anyhow::Result<()> {
     let stacks = &[stack([
         segment("x-yz_/hi", [id(1)], None, []),
-        segment("0ax", [id(1)], None, []),
+        segment("0ax", [id(2)], None, []),
     ])];
-    let id_map = IdMap::new_for_branches_and_commits(stacks)?;
+    let id_map = IdMap::new(stacks, Vec::new())?;
     insta::assert_debug_snapshot!(id_map.debug_state(), @r"
     workspace_and_remote_commits_count: 2
     branches: [ ax, yz ]
@@ -256,12 +250,36 @@ fn branches_avoid_invalid_ids() -> anyhow::Result<()> {
 }
 
 #[test]
+fn branches_avoid_uncommitted_filenames() -> anyhow::Result<()> {
+    let stacks = &[stack([segment("ghij", [id(1)], None, [])])];
+    let hunk_assignments = vec![hunk_assignment("gh", None), hunk_assignment("hi", None)];
+    let id_map = IdMap::new(stacks, hunk_assignments)?;
+    insta::assert_debug_snapshot!(id_map.debug_state(), @r"
+    workspace_and_remote_commits_count: 1
+    branches: [ ij ]
+    uncommitted_files: [ g0, h0 ]
+    uncommitted_hunks: [ i0, j0 ]
+    ");
+
+    let expected = [CliId::Branch {
+        name: "ghij".into(),
+        id: "ij".into(),
+    }];
+    assert_eq!(
+        id_map.resolve_entity_to_ids("ghij")?,
+        expected,
+        "avoids 'gh' and 'hi', which conflict with filenames"
+    );
+    Ok(())
+}
+
+#[test]
 fn branch_cannot_generate_id() -> anyhow::Result<()> {
     let stacks = &[
         stack([segment("substring", [id(1)], None, [])]),
         stack([segment("supersubstring", [id(2)], None, [])]),
     ];
-    let id_map = IdMap::new_for_branches_and_commits(stacks)?;
+    let id_map = IdMap::new(stacks, Vec::new())?;
     insta::assert_debug_snapshot!(id_map.debug_state(), @r"
     workspace_and_remote_commits_count: 2
     branches: [ g0, up ]
@@ -291,7 +309,18 @@ fn branch_cannot_generate_id() -> anyhow::Result<()> {
 #[test]
 fn non_commit_ids_do_not_collide() -> anyhow::Result<()> {
     let stacks = &[stack([segment("h0", [id(2)], Some(id(1)), [])])];
-    let mut id_map = IdMap::new_for_branches_and_commits(stacks)?;
+    let hunk_assignments = vec![
+        HunkAssignment {
+            hunk_header: Some(hunk_header("-1,2", "+1,2")),
+            ..hunk_assignment("uncommitted1.txt", None)
+        },
+        HunkAssignment {
+            hunk_header: Some(hunk_header("-3,2", "+3,2")),
+            ..hunk_assignment("uncommitted1.txt", None)
+        },
+        hunk_assignment("uncommitted2.txt", None),
+    ];
+    let mut id_map = IdMap::new(stacks, hunk_assignments)?;
     let changed_paths_fn = |commit_id: gix::ObjectId,
                             parent_id: Option<gix::ObjectId>|
      -> anyhow::Result<Vec<BString>> {
@@ -304,47 +333,107 @@ fn non_commit_ids_do_not_collide() -> anyhow::Result<()> {
             bail!("unexpected IDs {} {:?}", commit_id, parent_id);
         })
     };
-    let hunk_assignments = vec![
-        HunkAssignment {
-            hunk_header: Some(hunk_header("-1,2", "+1,2")),
-            ..hunk_assignment("uncommitted1.txt", None)
-        },
-        HunkAssignment {
-            hunk_header: Some(hunk_header("-3,2", "+3,2")),
-            ..hunk_assignment("uncommitted1.txt", None)
-        },
-        hunk_assignment("uncommitted2.txt", None),
-    ];
-    id_map.add_file_info(changed_paths_fn, hunk_assignments)?;
+    id_map.add_committed_file_info(changed_paths_fn)?;
     insta::assert_debug_snapshot!(id_map.debug_state(), @r"
     workspace_and_remote_commits_count: 1
     branches: [ h0 ]
     uncommitted_files: [ g0, i0 ]
-    committed_files: [ j0, k0 ]
-    uncommitted_hunks: [ l0, m0, n0 ]
+    committed_files: [ m0, n0 ]
+    uncommitted_hunks: [ j0, k0, l0 ]
     ");
     insta::assert_debug_snapshot!(id_map.all_ids(), @r#"
     [
-        Commit(
-            Sha1(0202020202020202020202020202020202020202),
-        ),
-        UncommittedFile {
-            hunk_assignments: NonEmpty {
-                head: HunkAssignment {
-                    id: None,
-                    hunk_header: Some(
-                        HunkHeader("-1,2", "+1,2"),
-                    ),
-                    path: "",
-                    path_bytes: "uncommitted1.txt",
-                    stack_id: None,
-                    hunk_locks: None,
-                    line_nums_added: None,
-                    line_nums_removed: None,
-                    diff: None,
+        Commit {
+            commit_id: Sha1(0202020202020202020202020202020202020202),
+            id: "02",
+        },
+        Uncommitted(
+            UncommittedCliId {
+                id: "g0",
+                hunk_assignments: NonEmpty {
+                    head: HunkAssignment {
+                        id: None,
+                        hunk_header: Some(
+                            HunkHeader("-1,2", "+1,2"),
+                        ),
+                        path: "",
+                        path_bytes: "uncommitted1.txt",
+                        stack_id: None,
+                        hunk_locks: None,
+                        line_nums_added: None,
+                        line_nums_removed: None,
+                        diff: None,
+                    },
+                    tail: [
+                        HunkAssignment {
+                            id: None,
+                            hunk_header: Some(
+                                HunkHeader("-3,2", "+3,2"),
+                            ),
+                            path: "",
+                            path_bytes: "uncommitted1.txt",
+                            stack_id: None,
+                            hunk_locks: None,
+                            line_nums_added: None,
+                            line_nums_removed: None,
+                            diff: None,
+                        },
+                    ],
                 },
-                tail: [
-                    HunkAssignment {
+                is_entire_file: true,
+            },
+        ),
+        Branch {
+            name: "h0",
+            id: "h0",
+        },
+        Uncommitted(
+            UncommittedCliId {
+                id: "i0",
+                hunk_assignments: NonEmpty {
+                    head: HunkAssignment {
+                        id: None,
+                        hunk_header: None,
+                        path: "",
+                        path_bytes: "uncommitted2.txt",
+                        stack_id: None,
+                        hunk_locks: None,
+                        line_nums_added: None,
+                        line_nums_removed: None,
+                        diff: None,
+                    },
+                    tail: [],
+                },
+                is_entire_file: true,
+            },
+        ),
+        Uncommitted(
+            UncommittedCliId {
+                id: "j0",
+                hunk_assignments: NonEmpty {
+                    head: HunkAssignment {
+                        id: None,
+                        hunk_header: Some(
+                            HunkHeader("-1,2", "+1,2"),
+                        ),
+                        path: "",
+                        path_bytes: "uncommitted1.txt",
+                        stack_id: None,
+                        hunk_locks: None,
+                        line_nums_added: None,
+                        line_nums_removed: None,
+                        diff: None,
+                    },
+                    tail: [],
+                },
+                is_entire_file: false,
+            },
+        ),
+        Uncommitted(
+            UncommittedCliId {
+                id: "k0",
+                hunk_assignments: NonEmpty {
+                    head: HunkAssignment {
                         id: None,
                         hunk_header: Some(
                             HunkHeader("-3,2", "+3,2"),
@@ -357,58 +446,39 @@ fn non_commit_ids_do_not_collide() -> anyhow::Result<()> {
                         line_nums_removed: None,
                         diff: None,
                     },
-                ],
-            },
-            id: "g0",
-        },
-        Branch {
-            name: "h0",
-            id: "h0",
-        },
-        UncommittedFile {
-            hunk_assignments: NonEmpty {
-                head: HunkAssignment {
-                    id: None,
-                    hunk_header: None,
-                    path: "",
-                    path_bytes: "uncommitted2.txt",
-                    stack_id: None,
-                    hunk_locks: None,
-                    line_nums_added: None,
-                    line_nums_removed: None,
-                    diff: None,
+                    tail: [],
                 },
-                tail: [],
+                is_entire_file: false,
             },
-            id: "i0",
-        },
+        ),
+        Uncommitted(
+            UncommittedCliId {
+                id: "l0",
+                hunk_assignments: NonEmpty {
+                    head: HunkAssignment {
+                        id: None,
+                        hunk_header: None,
+                        path: "",
+                        path_bytes: "uncommitted2.txt",
+                        stack_id: None,
+                        hunk_locks: None,
+                        line_nums_added: None,
+                        line_nums_removed: None,
+                        diff: None,
+                    },
+                    tail: [],
+                },
+                is_entire_file: false,
+            },
+        ),
         CommittedFile {
             commit_id: Sha1(0202020202020202020202020202020202020202),
             path: "committed1.txt",
-            id: "j0",
+            id: "m0",
         },
         CommittedFile {
             commit_id: Sha1(0202020202020202020202020202020202020202),
             path: "committed2.txt",
-            id: "k0",
-        },
-        UncommittedHunk {
-            hunk_header: Some(
-                HunkHeader("-1,2", "+1,2"),
-            ),
-            path: "uncommitted1.txt",
-            id: "l0",
-        },
-        UncommittedHunk {
-            hunk_header: Some(
-                HunkHeader("-3,2", "+3,2"),
-            ),
-            path: "uncommitted1.txt",
-            id: "m0",
-        },
-        UncommittedHunk {
-            hunk_header: None,
-            path: "uncommitted2.txt",
             id: "n0",
         },
     ]
@@ -420,7 +490,8 @@ fn non_commit_ids_do_not_collide() -> anyhow::Result<()> {
 #[test]
 fn ids_are_case_sensitive() -> anyhow::Result<()> {
     let stacks = &[stack([segment("h0", [id(10)], Some(id(9)), [])])];
-    let mut id_map = IdMap::new_for_branches_and_commits(stacks)?;
+    let hunk_assignments = vec![hunk_assignment("uncommitted.txt", None)];
+    let mut id_map = IdMap::new(stacks, hunk_assignments)?;
     let changed_paths_fn = |commit_id: gix::ObjectId,
                             parent_id: Option<gix::ObjectId>|
      -> anyhow::Result<Vec<BString>> {
@@ -430,23 +501,23 @@ fn ids_are_case_sensitive() -> anyhow::Result<()> {
             bail!("unexpected IDs {} {:?}", commit_id, parent_id);
         })
     };
-    let hunk_assignments = vec![hunk_assignment("uncommitted.txt", None)];
-    id_map.add_file_info(changed_paths_fn, hunk_assignments)?;
+    id_map.add_committed_file_info(changed_paths_fn)?;
     insta::assert_debug_snapshot!(id_map.debug_state(), @r"
     workspace_and_remote_commits_count: 1
     branches: [ h0 ]
     uncommitted_files: [ g0 ]
-    committed_files: [ i0 ]
-    uncommitted_hunks: [ j0 ]
+    committed_files: [ j0 ]
+    uncommitted_hunks: [ i0 ]
     ");
 
-    insta::assert_debug_snapshot!(id_map.resolve_entity_to_ids("0a")?, @r"
+    insta::assert_debug_snapshot!(id_map.resolve_entity_to_ids("0a")?, @r#"
     [
-        Commit(
-            Sha1(0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a),
-        ),
+        Commit {
+            commit_id: Sha1(0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a),
+            id: "0a",
+        },
     ]
-    ");
+    "#);
     assert_eq!(
         id_map.resolve_entity_to_ids("0A")?,
         [],
@@ -469,23 +540,26 @@ fn ids_are_case_sensitive() -> anyhow::Result<()> {
 
     insta::assert_debug_snapshot!(id_map.resolve_entity_to_ids("g0")?, @r#"
     [
-        UncommittedFile {
-            hunk_assignments: NonEmpty {
-                head: HunkAssignment {
-                    id: None,
-                    hunk_header: None,
-                    path: "",
-                    path_bytes: "uncommitted.txt",
-                    stack_id: None,
-                    hunk_locks: None,
-                    line_nums_added: None,
-                    line_nums_removed: None,
-                    diff: None,
+        Uncommitted(
+            UncommittedCliId {
+                id: "g0",
+                hunk_assignments: NonEmpty {
+                    head: HunkAssignment {
+                        id: None,
+                        hunk_header: None,
+                        path: "",
+                        path_bytes: "uncommitted.txt",
+                        stack_id: None,
+                        hunk_locks: None,
+                        line_nums_added: None,
+                        line_nums_removed: None,
+                        diff: None,
+                    },
+                    tail: [],
                 },
-                tail: [],
+                is_entire_file: true,
             },
-            id: "g0",
-        },
+        ),
     ]
     "#);
     assert_eq!(
@@ -496,11 +570,26 @@ fn ids_are_case_sensitive() -> anyhow::Result<()> {
 
     insta::assert_debug_snapshot!(id_map.resolve_entity_to_ids("i0")?, @r#"
     [
-        CommittedFile {
-            commit_id: Sha1(0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a),
-            path: "committed.txt",
-            id: "i0",
-        },
+        Uncommitted(
+            UncommittedCliId {
+                id: "i0",
+                hunk_assignments: NonEmpty {
+                    head: HunkAssignment {
+                        id: None,
+                        hunk_header: None,
+                        path: "",
+                        path_bytes: "uncommitted.txt",
+                        stack_id: None,
+                        hunk_locks: None,
+                        line_nums_added: None,
+                        line_nums_removed: None,
+                        diff: None,
+                    },
+                    tail: [],
+                },
+                is_entire_file: false,
+            },
+        ),
     ]
     "#);
     assert_eq!(
@@ -512,8 +601,98 @@ fn ids_are_case_sensitive() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[test]
+fn branch_and_file_by_name() -> anyhow::Result<()> {
+    let stacks = &[stack([segment("foo", [id(1)], None, [])])];
+    let hunk_assignments = vec![hunk_assignment("foo", None)];
+    let mut id_map = IdMap::new(stacks, hunk_assignments)?;
+    let changed_paths_fn = |commit_id: gix::ObjectId,
+                            parent_id: Option<gix::ObjectId>|
+     -> anyhow::Result<Vec<BString>> {
+        Ok(if commit_id == id(1) && parent_id.is_none() {
+            vec![]
+        } else {
+            bail!("unexpected IDs {} {:?}", commit_id, parent_id);
+        })
+    };
+    id_map.add_committed_file_info(changed_paths_fn)?;
+
+    // Both branches and uncommitted, unassigned files match by name, and none
+    // have priority over the other (i.e. if there is both a branch and a file
+    // that matches, the result is ambiguous).
+    insta::assert_debug_snapshot!(id_map.resolve_entity_to_ids("foo")?, @r#"
+    [
+        Branch {
+            name: "foo",
+            id: "fo",
+        },
+        Uncommitted(
+            UncommittedCliId {
+                id: "foo",
+                hunk_assignments: NonEmpty {
+                    head: HunkAssignment {
+                        id: None,
+                        hunk_header: None,
+                        path: "",
+                        path_bytes: "foo",
+                        stack_id: None,
+                        hunk_locks: None,
+                        line_nums_added: None,
+                        line_nums_removed: None,
+                        diff: None,
+                    },
+                    tail: [],
+                },
+                is_entire_file: true,
+            },
+        ),
+    ]
+    "#);
+
+    Ok(())
+}
+
+#[test]
+fn committed_files_are_deduplicated_by_commit_oid_path() -> anyhow::Result<()> {
+    let stacks = &[stack([segment("branch", [id(2)], Some(id(1)), [])])];
+    let mut id_map = IdMap::new(stacks, Vec::new())?;
+
+    // Simulate a changed_paths function that returns the same file twice
+    // (which could happen due to a bug in the caller or data source)
+    let changed_paths_fn = |commit_id: gix::ObjectId,
+                            parent_id: Option<gix::ObjectId>|
+     -> anyhow::Result<Vec<BString>> {
+        Ok(if commit_id == id(2) && parent_id == Some(id(1)) {
+            vec![
+                BString::from(b"file.txt"),
+                BString::from(b"file.txt"), // Duplicate!
+                BString::from(b"other.txt"),
+            ]
+        } else {
+            anyhow::bail!("unexpected IDs {} {:?}", commit_id, parent_id);
+        })
+    };
+
+    id_map.add_committed_file_info(changed_paths_fn)?;
+
+    // The duplicate should be deduplicated - we should only have 2 committed files
+    insta::assert_debug_snapshot!(id_map.debug_state(), @r"
+    workspace_and_remote_commits_count: 1
+    branches: [ br ]
+    committed_files: [ g0, i0 ]
+    ");
+
+    // Verify we can look up both files (g0 for file.txt, i0 for other.txt)
+    // Note: h0 was consumed by the duplicate but discarded during deduplication
+    assert!(id_map.resolve_entity_to_ids("g0")?.len() == 1);
+    assert!(id_map.resolve_entity_to_ids("i0")?.len() == 1);
+
+    Ok(())
+}
+
 mod util {
-    use crate::{CliId, IdMap};
+    use std::{cmp::Ordering, fmt::Formatter};
+
     use bstr::BString;
     use but_core::ref_metadata::StackId;
     use but_hunk_assignment::HunkAssignment;
@@ -522,7 +701,8 @@ mod util {
         ref_info::{Commit, LocalCommit, Segment},
     };
     use itertools::Itertools;
-    use std::{cmp::Ordering, fmt::Formatter};
+
+    use crate::{CliId, IdMap};
 
     pub fn id(byte: u8) -> gix::ObjectId {
         gix::ObjectId::try_from([byte].repeat(20).as_slice()).expect("could not generate ID")
@@ -619,8 +799,8 @@ mod util {
                 // `branch_auto_id_to_cli_id`.
                 branch_auto_id_to_cli_id: _,
                 id_usage: _,
-                workspace_commit_and_first_parent_ids: _,
-                remote_commit_ids: _,
+                workspace_commits,
+                remote_commit_ids,
                 unassigned: _,
                 uncommitted_files,
                 uncommitted_hunks,
@@ -630,6 +810,8 @@ mod util {
             branch_name_to_cli_id
                 .values()
                 .map(|id| id.to_short_string())
+                .chain(workspace_commits.keys().cloned())
+                .chain(remote_commit_ids.keys().cloned())
                 .chain(uncommitted_files.keys().cloned())
                 .chain(committed_files.iter().map(|f| f.id.clone()))
                 .chain(uncommitted_hunks.keys().cloned())
@@ -637,11 +819,6 @@ mod util {
                     self.resolve_entity_to_ids(&id)
                         .expect("BUG: valid ID means no error")
                 })
-                .chain(
-                    self.workspace_and_remote_commit_ids()
-                        .cloned()
-                        .map(CliId::Commit),
-                )
                 .sorted_by(id_cmp)
                 .collect()
         }
@@ -661,7 +838,7 @@ mod util {
                 // in `branch_auto_id_to_cli_id`.
                 branch_auto_id_to_cli_id: _,
                 id_usage: _,
-                workspace_commit_and_first_parent_ids: _,
+                workspace_commits: _,
                 remote_commit_ids: _,
                 unassigned: _,
                 uncommitted_files,

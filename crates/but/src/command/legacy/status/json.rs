@@ -9,11 +9,11 @@
 //! Non-goals:
 //! - Completeness: The output structures do not include all the data that the internal but-api has.
 
+use std::collections::BTreeMap;
+
 use but_api::diff::ComputeLineStats;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
-
-use crate::CliId;
 
 /// JSON output for the `but status` command
 /// This represents the status of the GitButler "workspace".
@@ -40,6 +40,9 @@ pub(crate) struct UpstreamState {
     pub latest_commit: Commit,
     /// Timestamp of when the upstream branch was last fetched, in RFC3339 format
     pub last_fetched: Option<String>,
+    /// List of upstream commits (only populated when requested with --upstream flag)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream_commits: Option<Vec<Commit>>,
 }
 
 impl WorkspaceStatus {
@@ -96,6 +99,68 @@ pub(crate) struct Branch {
     branch_status: BranchStatus,
     /// If but status was invoked with --review and if the branch has an associated review ID (eg. PR number), it will be present here
     review_id: Option<String>,
+    /// The CI status checks associated with this branch, including pending, passing, and failing checks.
+    /// This is only populated when CI information is available for the branch (for example, when the
+    /// repository is configured with CI and the status has been fetched); otherwise it will be `None`.
+    ci: Option<Ci>,
+    /// The merge status of the branch with upstream, indicating whether it can be cleanly integrated.
+    /// This is only populated when `but status --upstream` is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    merge_status: Option<MergeStatus>,
+}
+
+/// The aggregated status of CI checks associated with a branch.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Ci {
+    /// Titles of CI checks that are currently pending or still running
+    pub pending_check_titles: Vec<String>,
+    /// Titles of CI checks that have completed successfully
+    pub passing_check_titles: Vec<String>,
+    /// Titles of CI checks that have completed with a failure
+    pub failing_check_titles: Vec<String>,
+    /// Overall execution status of the CI checks (whether checks are still running or all are complete)
+    pub status: CiStatus,
+    /// Overall result of the completed CI checks (pass, fail, or unknown), independent of whether checks are still running
+    pub conclusion: CiConclusion,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum CiStatus {
+    /// All CI checks have finished running, regardless of whether they passed or failed.
+    Complete,
+    /// At least one CI check is still running or has not started yet.
+    InProgress,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum CiConclusion {
+    /// At least one required CI check failed or reported an error.
+    Failure,
+    /// All required CI checks completed successfully.
+    Success,
+    /// The overall CI outcome is not known, for example because no checks ran
+    /// or the CI provider did not report a final result.
+    Unknown,
+}
+
+/// The merge status of a branch with the upstream branch
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum MergeStatus {
+    /// The branch can be cleanly merged or rebased onto the upstream
+    Clean,
+    /// The branch has already been integrated into the upstream
+    Integrated,
+    /// The branch has conflicts with the upstream
+    Conflicted {
+        /// Whether the branch can be rebased (despite conflicts)
+        rebasable: bool,
+    },
+    /// The branch has no commits
+    Empty,
 }
 
 /// The status of a branch with respect to its upstream
@@ -164,21 +229,82 @@ pub(crate) enum ChangeType {
     Renamed,
 }
 
+impl From<Vec<but_forge::CiCheck>> for Ci {
+    fn from(checks: Vec<but_forge::CiCheck>) -> Self {
+        let mut pending_check_titles = Vec::new();
+        let mut passing_check_titles = Vec::new();
+        let mut failing_check_titles = Vec::new();
+        let mut overall_conclusion = CiConclusion::Unknown;
+
+        for check in checks {
+            match check.status {
+                but_forge::CiStatus::InProgress => {
+                    pending_check_titles.push(check.name);
+                }
+                but_forge::CiStatus::Queued => {
+                    pending_check_titles.push(check.name);
+                }
+                but_forge::CiStatus::Complete { conclusion, .. } => match conclusion {
+                    but_forge::CiConclusion::Success => {
+                        passing_check_titles.push(check.name);
+                    }
+                    but_forge::CiConclusion::Failure => {
+                        failing_check_titles.push(check.name);
+                    }
+                    _ => {
+                        // Other conclusions (e.g., Neutral, Skipped, Cancelled, TimedOut,
+                        // ActionRequired) are not treated as passing or failing.
+                    }
+                },
+                but_forge::CiStatus::Unknown => {
+                    // Intentionally ignore checks with unknown status: they are not included in any
+                    // of the *_check_titles lists and do not affect overall status/conclusion.
+                }
+            }
+        }
+
+        let overall_status = if !pending_check_titles.is_empty() {
+            CiStatus::InProgress
+        } else {
+            CiStatus::Complete
+        };
+
+        if !failing_check_titles.is_empty() {
+            overall_conclusion = CiConclusion::Failure;
+        } else if !pending_check_titles.is_empty() {
+            overall_conclusion = CiConclusion::Unknown;
+        } else if !passing_check_titles.is_empty() {
+            overall_conclusion = CiConclusion::Success;
+        }
+
+        Ci {
+            pending_check_titles,
+            passing_check_titles,
+            failing_check_titles,
+            status: overall_status,
+            conclusion: overall_conclusion,
+        }
+    }
+}
+
 impl Branch {
+    #[allow(clippy::too_many_arguments)]
     pub fn from_branch_details(
         cli_id: String,
         branch: but_workspace::ui::BranchDetails,
         review_id: Option<String>,
         show_files: bool,
         project_id: gitbutler_project::ProjectId,
-        id_map: &mut crate::IdMap,
+        id_map: &crate::IdMap,
+        ci: Option<Vec<but_forge::CiCheck>>,
+        merge_status: Option<MergeStatus>,
     ) -> anyhow::Result<Self> {
         let commits = branch
             .commits
             .iter()
             .map(|c| {
                 Commit::from_local_commit(
-                    CliId::Commit(c.id).to_short_string(),
+                    id_map.resolve_commit(&c.id).to_short_string(),
                     c.clone(),
                     show_files,
                     project_id,
@@ -191,7 +317,11 @@ impl Branch {
             .upstream_commits
             .iter()
             .map(|c| {
-                Commit::from_upstream_commit(CliId::Commit(c.id).to_short_string(), c.clone(), None)
+                Commit::from_upstream_commit(
+                    id_map.resolve_commit(&c.id).to_short_string(),
+                    c.clone(),
+                    None,
+                )
             })
             .collect();
 
@@ -202,6 +332,8 @@ impl Branch {
             upstream_commits,
             branch_status: branch.push_status.into(),
             review_id,
+            ci: ci.map(Ci::from),
+            merge_status,
         })
     }
 }
@@ -222,7 +354,7 @@ impl Commit {
         commit: but_workspace::ui::Commit,
         show_files: bool,
         project_id: gitbutler_project::ProjectId,
-        id_map: &mut crate::IdMap,
+        id_map: &crate::IdMap,
     ) -> anyhow::Result<Self> {
         let changes = if show_files {
             // TODO: we should get the `ctx` as parameter.
@@ -329,17 +461,21 @@ fn convert_file_assignments(
 /// Convert a BranchDetails to the JSON Branch type
 fn convert_branch_to_json(
     branch: &but_workspace::ui::BranchDetails,
-    review: bool,
     show_files: bool,
     project_id: gitbutler_project::ProjectId,
     review_map: &std::collections::HashMap<String, Vec<but_forge::ForgeReview>>,
-    id_map: &mut crate::IdMap,
+    ci_map: &BTreeMap<String, Vec<but_forge::CiCheck>>,
+    branch_merge_statuses: &BTreeMap<
+        String,
+        gitbutler_branch_actions::upstream_integration::BranchStatus,
+    >,
+    id_map: &crate::IdMap,
 ) -> anyhow::Result<Branch> {
     let cli_id = id_map
         .resolve_branch(branch.name.as_ref())
         .to_short_string();
 
-    let review_id = if review {
+    let review_id = {
         crate::command::legacy::forge::review::get_review_numbers(
             &branch.name.to_string(),
             &branch.pr_number,
@@ -348,9 +484,29 @@ fn convert_branch_to_json(
         .split_whitespace()
         .next()
         .map(|s| s.to_string())
-    } else {
-        None
     };
+
+    let ci = ci_map.get(&branch.name.to_string()).cloned();
+
+    let merge_status =
+        branch_merge_statuses
+            .get(&branch.name.to_string())
+            .map(|status| match status {
+                gitbutler_branch_actions::upstream_integration::BranchStatus::SaflyUpdatable => {
+                    MergeStatus::Clean
+                }
+                gitbutler_branch_actions::upstream_integration::BranchStatus::Integrated => {
+                    MergeStatus::Integrated
+                }
+                gitbutler_branch_actions::upstream_integration::BranchStatus::Conflicted {
+                    rebasable,
+                } => MergeStatus::Conflicted {
+                    rebasable: *rebasable,
+                },
+                gitbutler_branch_actions::upstream_integration::BranchStatus::Empty => {
+                    MergeStatus::Empty
+                }
+            });
 
     Branch::from_branch_details(
         cli_id.to_string(),
@@ -359,6 +515,8 @@ fn convert_branch_to_json(
         show_files,
         project_id,
         id_map,
+        ci,
+        merge_status,
     )
 }
 
@@ -375,11 +533,17 @@ pub(super) fn build_workspace_status_json(
     upstream_state: &Option<super::UpstreamState>,
     last_fetched_ms: Option<u128>,
     review_map: &std::collections::HashMap<String, Vec<but_forge::ForgeReview>>,
+    ci_map: &BTreeMap<String, Vec<but_forge::CiCheck>>,
+    branch_merge_statuses: &BTreeMap<
+        String,
+        gitbutler_branch_actions::upstream_integration::BranchStatus,
+    >,
     show_files: bool,
-    review: bool,
     project_id: gitbutler_project::ProjectId,
     repo: &gix::Repository,
-    id_map: &mut crate::IdMap,
+    id_map: &crate::IdMap,
+    base_branch: Option<&gitbutler_branch_actions::BaseBranch>,
+    show_upstream: bool,
 ) -> anyhow::Result<WorkspaceStatus> {
     let mut json_stacks = Vec::new();
     let mut json_unassigned_changes = Vec::new();
@@ -403,7 +567,13 @@ pub(super) fn build_workspace_status_json(
                 .iter()
                 .map(|branch| {
                     convert_branch_to_json(
-                        branch, review, show_files, project_id, review_map, id_map,
+                        branch,
+                        show_files,
+                        project_id,
+                        review_map,
+                        ci_map,
+                        branch_merge_statuses,
+                        id_map,
                     )
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
@@ -419,7 +589,9 @@ pub(super) fn build_workspace_status_json(
     let base_commit_decoded = base_commit.decode()?;
     let author: but_workspace::ui::Author = base_commit_decoded.author()?.into();
 
-    let cli_id = CliId::Commit(common_merge_base.commit_id).to_short_string();
+    let cli_id = id_map
+        .resolve_commit(&common_merge_base.commit_id)
+        .to_short_string();
     let merge_base_commit = Commit::from_upstream_commit(
         cli_id,
         but_workspace::ui::UpstreamCommit {
@@ -437,7 +609,7 @@ pub(super) fn build_workspace_status_json(
         let upstream_commit_decoded = upstream_commit.decode()?;
         let upstream_author: but_workspace::ui::Author = upstream_commit_decoded.author()?.into();
 
-        let cli_id = CliId::Commit(upstream.commit_id).to_short_string();
+        let cli_id = id_map.resolve_commit(&upstream.commit_id).to_short_string();
         let latest_commit = Commit::from_upstream_commit(
             cli_id,
             but_workspace::ui::UpstreamCommit {
@@ -451,10 +623,48 @@ pub(super) fn build_workspace_status_json(
 
         let last_fetched = last_fetched_ms.map(|ts| i128_to_rfc3339(ts as i128));
 
+        // Populate upstream_commits if show_upstream flag is set and base_branch is available
+        let upstream_commits = if show_upstream {
+            base_branch.and_then(|bb| {
+                if bb.upstream_commits.is_empty() {
+                    None
+                } else {
+                    let commits: anyhow::Result<Vec<Commit>> = bb
+                        .upstream_commits
+                        .iter()
+                        .map(|remote_commit| {
+                            let commit_oid = gix::ObjectId::from_hex(remote_commit.id.as_bytes())?;
+                            let cli_id = id_map.resolve_commit(&commit_oid).to_short_string();
+                            // Convert the author manually since there's no From impl between the two Author types
+                            let author = but_workspace::ui::Author {
+                                name: remote_commit.author.name.clone(),
+                                email: remote_commit.author.email.clone(),
+                                gravatar_url: remote_commit.author.gravatar_url.clone(),
+                            };
+                            Ok(Commit::from_upstream_commit(
+                                cli_id,
+                                but_workspace::ui::UpstreamCommit {
+                                    id: commit_oid,
+                                    created_at: remote_commit.created_at as i128,
+                                    message: remote_commit.description.clone().into(),
+                                    author,
+                                },
+                                None,
+                            ))
+                        })
+                        .collect();
+                    commits.ok()
+                }
+            })
+        } else {
+            None
+        };
+
         UpstreamState {
             behind: upstream.behind_count,
             latest_commit,
             last_fetched,
+            upstream_commits,
         }
     } else {
         // When up to date, use the merge base as the latest commit
@@ -464,6 +674,7 @@ pub(super) fn build_workspace_status_json(
             behind: 0,
             latest_commit: merge_base_commit.clone(),
             last_fetched,
+            upstream_commits: None,
         }
     };
 

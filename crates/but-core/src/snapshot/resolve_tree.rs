@@ -40,10 +40,10 @@ pub(super) mod function {
 
     use anyhow::{Context as _, bail};
     use bstr::ByteSlice;
-    use but_oxidize::GixRepositoryExt;
     use gix::index::entry::{Flags, Stage};
 
     use super::{Options, Outcome};
+    use crate::RepositoryExt;
 
     /// Given the `snapshot_tree` as previously returned via [`crate::snapshot::create_tree::Outcome::snapshot_tree`], extract data and…
     ///

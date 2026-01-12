@@ -3,17 +3,22 @@
 
 pub mod absorb;
 pub mod actions;
-pub mod base;
 pub mod branch;
 pub mod commit;
-pub mod describe;
+pub mod diff;
+pub mod discard;
 pub mod forge;
 pub mod init;
 pub mod mark;
 pub mod mcp;
 pub mod mcp_internal;
 pub mod oplog;
+pub mod pull;
 pub mod push;
+pub mod refresh;
+pub mod resolve;
+pub mod reword;
 pub mod rub;
+pub mod show;
 pub mod status;
 pub mod worktree;

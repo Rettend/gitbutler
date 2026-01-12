@@ -99,3 +99,51 @@ diesel::table! {
         updated_at -> Timestamp,
     }
 }
+
+diesel::table! {
+    forge_reviews (number) {
+        html_url -> Text,
+        number -> BigInt,
+        title -> Text,
+        body -> Nullable<Text>,
+        author -> Nullable<Text>,
+        labels -> Text,
+        draft -> Bool,
+        source_branch -> Text,
+        target_branch -> Text,
+        sha -> Text,
+        created_at -> Nullable<Timestamp>,
+        modified_at -> Nullable<Timestamp>,
+        merged_at -> Nullable<Timestamp>,
+        closed_at -> Nullable<Timestamp>,
+        repository_ssh_url -> Nullable<Text>,
+        repository_https_url -> Nullable<Text>,
+        repo_owner -> Nullable<Text>,
+        reviewers -> Text,
+        unit_symbol -> Text,
+        last_sync_at -> Timestamp,
+        struct_version -> Integer,
+    }
+}
+
+diesel::table! {
+    ci_checks (id) {
+        id -> BigInt,
+        name -> Text,
+        output_summary -> Text,
+        output_text -> Text,
+        output_title -> Text,
+        started_at -> Nullable<Timestamp>,
+        status_type -> Text,
+        status_conclusion -> Nullable<Text>,
+        status_completed_at -> Nullable<Timestamp>,
+        head_sha -> Text,
+        url -> Text,
+        html_url -> Text,
+        details_url -> Text,
+        pull_requests -> Text,
+        reference -> Text,
+        last_sync_at -> Timestamp,
+        struct_version -> Integer,
+    }
+}

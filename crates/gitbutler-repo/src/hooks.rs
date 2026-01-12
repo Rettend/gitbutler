@@ -193,12 +193,20 @@ pub fn pre_push(
     .spawn()?;
 
     {
+        // Wait for the child process to be ready before writing to stdin.
+        // Check if the process has already exited unexpectedly.
+        if let Some(status) = child.try_wait()? {
+            // Process already exited, don't write to stdin.
+            let error = format!("pre-push hook exited early with status: {}", status);
+            return Ok(HookResult::Failure(ErrorData { error }));
+        }
+
         let remote_commit = repo
             .find_reference(&remote_tracking_branch.to_string())
             .ok()
             .and_then(|r| r.target())
             .unwrap_or_else(git2::Oid::zero);
-        // THIS IS WRONG: but is correct the common case. This also is an issue when the ref is actually pushed,
+        // THIS IS WRONG: but is correct in the common case. This also is an issue when the ref is actually pushed,
         // but we can fix it when moving everything to `gix`.
         let local_tracking_branch_deduced =
             format!("refs/heads/{}", remote_tracking_branch.branch());

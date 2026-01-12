@@ -1,12 +1,3 @@
-use std::{
-    any::Any,
-    cell::RefCell,
-    collections::{BTreeMap, BTreeSet, HashSet},
-    ops::{Deref, DerefMut},
-    path::{Path, PathBuf},
-    time::Instant,
-};
-
 use anyhow::{Context as _, bail};
 use bstr::ByteSlice;
 use but_core::{
@@ -24,6 +15,15 @@ use gix::{
     refs::{FullName, FullNameRef},
 };
 use itertools::Itertools;
+use std::cmp::Ordering;
+use std::{
+    any::Any,
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet, HashSet},
+    ops::{Deref, DerefMut},
+    path::{Path, PathBuf},
+    time::Instant,
+};
 use tracing::instrument;
 
 use crate::virtual_branches_legacy_types::{CommitOrChangeId, Stack, StackBranch, VirtualBranches};
@@ -52,7 +52,10 @@ impl Snapshot {
     }
 
     fn write_if_changed(&mut self, reconcile: ReconcileWithWorkspace) -> anyhow::Result<()> {
-        if self.changed_at.is_some() {
+        if self.changed_at.is_some()
+            || self.has_null_head_hash()
+            || self.clone().enforce_constraints(None)
+        {
             if self.content == Default::default() {
                 std::fs::remove_file(&self.path)?;
             } else {
@@ -100,22 +103,58 @@ impl Snapshot {
         // EVIL HACK: assure we fill-in the CommitIDs of heads or else everything breaks.
         //            this probably won't be needed once no old code is running, and by then
         //            we should move away from this anyway and have a DB backed implementation.
-        let repo = gix::discover(self.path.parent().expect("at least a file"))
-            .ok()
-            .map(|repo| {
-                (
-                    repo,
-                    CommitOrChangeId::CommitId(gix::hash::Kind::Sha1.null().to_string()),
-                )
-            });
+        let repo = gix::discover(self.path.parent().expect("at least a file")).ok();
         let mut clone = self.clone();
-        if let Some((repo, _)) = repo
+        if let Some(repo) = repo
             .as_ref()
             .filter(|_| matches!(reconcile, ReconcileWithWorkspace::Allow))
         {
-            clone.reconcile_in_workspace_state_of_vb_toml(repo).ok();
+            clone.reconcile_and_fix_vb_toml(repo).ok();
         }
-        for stack in clone.content.branches.values_mut() {
+        clone.enforce_constraints(repo.as_ref());
+        clone.content
+    }
+
+    /// Return `true` if any of the heads needs fixing because it's null.
+    fn has_null_head_hash(&self) -> bool {
+        let null_id = CommitOrChangeId::CommitId(gix::hash::Kind::Sha1.null().to_string());
+        self.content
+            .branches
+            .values()
+            .any(|stack| stack.heads.iter().any(|segment| segment.head == null_id))
+    }
+
+    /// Enforce data constraints and return `true` if this instance changed.
+    /// * ensure stack.name is set with the top-most segment name.
+    /// * Use `repo` to fill in object hashes which were set with `<null>`
+    /// * each ref-name is used once, and first user wins.
+    fn enforce_constraints(&mut self, repo: Option<&gix::Repository>) -> bool {
+        let mut changed = false;
+        let mut empty_stacks_to_remove = Vec::new();
+        let mut seen_refnames = BTreeSet::new();
+        for (stack_id, stack) in self
+            .content
+            .branches
+            .iter_mut()
+            .sorted_by(|(_, a), (_, b)| order_then_name(&&**a, &&**b))
+        {
+            let head_indices_to_remove: Vec<_> = stack
+                .heads
+                .iter()
+                .enumerate()
+                .filter_map(|(head_idx, head)| {
+                    (!seen_refnames.insert(head.name.clone())).then_some(head_idx)
+                })
+                .collect();
+            for head_idx in head_indices_to_remove.into_iter().rev() {
+                let head = stack.heads.remove(head_idx);
+                tracing::warn!(
+                    "Removed '{head_name}' from stack {stack_id} as it was already used in another stack",
+                    head_name = head.name
+                );
+                changed = true;
+            }
+
             if stack.name.is_empty() {
                 stack.name = stack
                     .heads
@@ -124,28 +163,39 @@ impl Snapshot {
                     .map(|h| h.name.as_str())
                     .unwrap_or_default()
                     .to_string();
+                changed = true;
             }
-            if let Some((repo, null_id)) = repo.as_ref() {
+            if let Some(repo) = repo {
+                let null_id = CommitOrChangeId::CommitId(gix::hash::Kind::Sha1.null().to_string());
+
                 for segment in &mut stack.heads {
-                    if &segment.head == null_id {
+                    if segment.head == null_id {
                         let Ok(mut r) = repo.find_reference(&segment.name) else {
                             continue;
                         };
                         if let Ok(id) = r.peel_to_id() {
                             segment.head = CommitOrChangeId::CommitId(id.to_string());
+                            changed = true;
                         }
                     }
                 }
             }
+
+            if stack.heads.is_empty() {
+                empty_stacks_to_remove.push(*stack_id);
+            }
         }
-        clone.content
+
+        for stack_id in empty_stacks_to_remove {
+            self.content.branches.remove(&stack_id);
+            tracing::warn!("Removed now empty stack {stack_id}");
+            changed = true;
+        }
+        changed
     }
 
     #[instrument(level = tracing::Level::DEBUG, skip(repo))]
-    fn reconcile_in_workspace_state_of_vb_toml(
-        &mut self,
-        repo: &gix::Repository,
-    ) -> anyhow::Result<()> {
+    fn reconcile_and_fix_vb_toml(&mut self, repo: &gix::Repository) -> anyhow::Result<()> {
         fn make_heads_match(ws_stack: &but_graph::projection::Stack, vb_stack: &mut Stack) -> bool {
             // Always leave extra segments.
 
@@ -172,7 +222,6 @@ impl Snapshot {
                 vb_stack.heads.push(StackBranch {
                     head: CommitOrChangeId::CommitId(first_commit_or_null),
                     name: segment_name.shorten().to_string(),
-                    description: None,
                     pr_number: None,
                     archived: false,
                     review_id: None,
@@ -348,7 +397,7 @@ impl VirtualBranchesTomlMetadata {
 impl VirtualBranchesTomlMetadata {
     /// Validate and fix workspace stack `in_workspace` status of `virtual_branches.toml`
     /// so they match what's actually in the workspace.
-    /// If there is a change, the data is written back once this instance is dropped.
+    /// If there is a change, the data is written back once instantly.
     ///
     /// Errors are silently ignored to allow the application to continue loading even if
     /// the migration fails - the workspace will still be functional, just potentially
@@ -360,8 +409,8 @@ impl VirtualBranchesTomlMetadata {
     /// Consume this instance to prevent double-reconciliation which also happens on drop.
     pub fn write_reconciled(mut self, repo: &gix::Repository) -> anyhow::Result<()> {
         // First possibly change our data…
-        self.snapshot
-            .reconcile_in_workspace_state_of_vb_toml(repo)?;
+        self.snapshot.reconcile_and_fix_vb_toml(repo)?;
+
         // Then write changes back.
         self.snapshot
             .write_if_changed(ReconcileWithWorkspace::Disallow)
@@ -410,7 +459,7 @@ impl RefMetadata for VirtualBranchesTomlMetadata {
         }
 
         // Brute force, but simple.
-        for stack in data.branches.values() {
+        for stack in data.branches.values().sorted_by(order_then_name) {
             for branch_ref_name in stack
                 .heads
                 .iter()
@@ -458,7 +507,7 @@ impl RefMetadata for VirtualBranchesTomlMetadata {
             .branches
             .values()
             // There shouldn't be duplication, but let's be sure it's deterministic if it is.
-            .sorted_by_key(|s| s.order)
+            .sorted_by(order_then_name)
             .find_map(|stack| {
                 stack.heads.iter().find_map(|branch| {
                     full_branch_name(branch.name.as_str()).and_then(|full_name| {
@@ -490,7 +539,6 @@ impl RefMetadata for VirtualBranchesTomlMetadata {
             stack_id: Some(stack.id).into(),
             value: Branch {
                 ref_info,
-                description: branch.description.clone(),
                 review: but_core::ref_metadata::Review {
                     pull_request: branch.pr_number,
                     review_id: branch.review_id.clone(),
@@ -690,7 +738,6 @@ impl RefMetadata for VirtualBranchesTomlMetadata {
 
                 let short_name = ref_name.shorten();
                 let StackBranch {
-                    description,
                     pr_number,
                     archived,
                     review_id,
@@ -707,7 +754,6 @@ impl RefMetadata for VirtualBranchesTomlMetadata {
                 let metadata_stack_indices =
                     ws.find_owner_indexes_by_name(ref_name, AppliedAndUnapplied);
                 self.snapshot.changed_at = Some(Instant::now());
-                *description = value.description.clone();
                 *pr_number = value.review.pull_request;
                 *review_id = value.review.review_id.clone();
                 if let Some((stack_idx, segment_idx)) = metadata_stack_indices {
@@ -792,8 +838,12 @@ impl VirtualBranchesTomlMetadata {
             })
             .unwrap_or_default();
 
-        let mut stacks: Vec<_> = data.branches.values().cloned().collect();
-        stacks.sort_by_key(|s| s.order);
+        let stacks: Vec<_> = data
+            .branches
+            .values()
+            .sorted_by(order_then_name)
+            .cloned()
+            .collect();
 
         Workspace {
             ref_info: managed_ref_info(),
@@ -836,17 +886,23 @@ impl VirtualBranchesTomlMetadata {
             return Ok(None);
         }
 
-        let Some((stack_id, branch_idx)) = self.data().branches.values().find_map(|stack| {
-            stack
-                .heads
-                .iter()
-                .enumerate()
-                .find_map(|(branch_idx, branch)| {
-                    full_branch_name(branch.name.as_str()).and_then(|full_name| {
-                        (full_name.as_ref() == ref_name).then_some((stack.id, branch_idx))
+        let Some((stack_id, branch_idx)) = self
+            .data()
+            .branches
+            .values()
+            .sorted_by(order_then_name)
+            .find_map(|stack| {
+                stack
+                    .heads
+                    .iter()
+                    .enumerate()
+                    .find_map(|(branch_idx, branch)| {
+                        full_branch_name(branch.name.as_str()).and_then(|full_name| {
+                            (full_name.as_ref() == ref_name).then_some((stack.id, branch_idx))
+                        })
                     })
-                })
-        }) else {
+            })
+        else {
             return Ok(None);
         };
 
@@ -938,18 +994,23 @@ fn branch_to_stack_branch(
     ref_name: &gix::refs::FullNameRef,
     Branch {
         ref_info: _, // TODO: should change parent stack if it's the top.
-        description,
         review,
     }: &Branch,
     archived: bool,
 ) -> StackBranch {
     StackBranch::new_with_zero_head(
         ref_name.shorten().to_string(),
-        description.clone(),
         review.pull_request,
         review.review_id.clone(),
         archived,
     )
+}
+
+/// Deterministically compare two stacks by their `order` field, using `name` and `id` as a tiebreaker.
+fn order_then_name(a: &&Stack, b: &&Stack) -> Ordering {
+    a.order
+        .cmp(&b.order)
+        .then_with(|| a.name.cmp(&b.name).then_with(|| a.id.cmp(&b.id)))
 }
 
 /// Copied from `gitbutler-fs` - shouldn't be needed anymore in future.

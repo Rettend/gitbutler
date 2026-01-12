@@ -1,9 +1,5 @@
 use std::{io::Write, ops::DerefMut, path::Path};
 
-use crate::{
-    git_status, graph_workspace_determinisitcally, invoke_bash_at_dir, isolate_snapbox_cmd,
-    visualize_commit_graph_all_from_dir,
-};
 use but_core::{
     RefMetadata,
     ref_metadata::{StackId, WorkspaceCommitRelation},
@@ -13,6 +9,11 @@ use but_meta::VirtualBranchesTomlMetadata;
 use but_settings::AppSettings;
 use gix_testtools::{Creation, tempfile};
 use snapbox::{Assert, Redactions};
+
+use crate::{
+    git_status, graph_workspace_determinisitcally, invoke_bash_at_dir, isolate_snapbox_cmd,
+    visualize_commit_graph_all_from_dir,
+};
 
 /// A sandbox for a GitButler application that assumes read-write testing, so all data is editable and is cleaned up afterward.
 pub struct Sandbox {
@@ -167,6 +168,9 @@ impl Sandbox {
     /// Create an assert with custom redactions. Adapt as needed.
     pub fn assert_with_oplog_redactions(&self) -> Assert {
         let mut redactions = Redactions::new();
+        redactions
+            .insert("[HASH]", regex::Regex::new(r#"\b[a-f0-9]{12}\b"#).unwrap())
+            .unwrap();
         redactions
             .insert(
                 "[SHORTHASH]",
@@ -414,7 +418,10 @@ impl Sandbox {
                 rules: true,
                 single_branch: true,
             },
-            extra_csp: ExtraCsp { hosts: vec![] },
+            extra_csp: ExtraCsp {
+                hosts: vec![],
+                img_src: vec![],
+            },
             fetch: Fetch {
                 auto_fetch_interval_minutes: 0,
             },

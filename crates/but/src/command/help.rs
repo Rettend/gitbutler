@@ -32,22 +32,24 @@ pub fn print_grouped(out: &mut dyn std::fmt::Write) -> std::fmt::Result {
 
     // Define command groupings and their order (excluding MISC)
     let groups = [
-        ("Inspection".yellow(), vec!["status"]),
+        ("Inspection".yellow(), vec!["status", "diff"]),
         (
             "Branching and Committing".yellow(),
-            vec!["commit", "new", "branch", "base", "mark", "unmark"],
+            vec![
+                "commit", "stage", "new", "branch", "discard", "resolve", "mark", "unmark",
+            ],
         ),
         (
             "Server Interactions".yellow(),
-            vec!["push", "review", "forge"],
+            vec!["push", "pull", "base", "pr", "forge"],
         ),
         (
             "Editing Commits".yellow(),
-            vec!["rub", "describe", "absorb"],
+            vec!["rub", "absorb", "reword", "uncommit", "amend"],
         ),
         (
             "Operation History".yellow(),
-            vec!["oplog", "undo", "restore", "snapshot"],
+            vec!["oplog", "undo", "restore"],
         ),
     ];
 
@@ -62,7 +64,7 @@ pub fn print_grouped(out: &mut dyn std::fmt::Write) -> std::fmt::Result {
     )?;
     writeln!(
         out,
-        "It is a drop in replacement for most of the Git commands you would normally use, but Git"
+        "It is a drop in replacement for most of the Git workflows you would normally use, but Git"
     )?;
     writeln!(
         out,

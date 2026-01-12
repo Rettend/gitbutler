@@ -22,6 +22,7 @@ but-graph.workspace = true
 but-oxidize.workspace = true
 but-forge.workspace = true
 but-ctx = { workspace = true, features = ["legacy"]}
+chrono.workspace = true
 
 gitbutler-oplog.workspace = true
 gitbutler-repo.workspace = true
@@ -61,6 +62,4 @@ glob = "0.3.3"
 tempfile.workspace = true
 but-hunk-assignment.workspace = true
 # Needed to make tests work with stable change ids
-gitbutler-git = { workspace = true, features = [
-    "test-askpass-path",
-] }
+gitbutler-git = { workspace = true }

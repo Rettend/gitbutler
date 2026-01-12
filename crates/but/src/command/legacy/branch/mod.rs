@@ -1,8 +1,7 @@
-use anyhow::bail;
+use anyhow::{Context, bail};
 use branch::Subcommands;
 use but_core::ref_metadata::StackId;
-use but_ctx::{Context, LegacyProject};
-use but_settings::AppSettings;
+use but_ctx::LegacyProject;
 use but_workspace::legacy::ui::StackEntry;
 
 use crate::{CliId, IdMap, args::branch, utils::OutputChannel};
@@ -12,28 +11,25 @@ mod json;
 mod list;
 mod show;
 
-pub async fn handle(
+pub fn handle(
     cmd: Option<Subcommands>,
-    legacy_project: &LegacyProject,
+    ctx: &mut but_ctx::Context,
     out: &mut OutputChannel,
 ) -> anyhow::Result<()> {
     match cmd {
-        None => {
-            Box::pin(handle(
-                Some(Subcommands::List {
-                    filter: None,
-                    local: false,
-                    remote: false,
-                    all: false,
-                    no_ahead: false,
-                    review: false,
-                    no_check: false,
-                }),
-                legacy_project,
-                out,
-            ))
-            .await
-        }
+        None => handle(
+            Some(Subcommands::List {
+                filter: None,
+                local: false,
+                remote: false,
+                all: false,
+                no_ahead: false,
+                review: false,
+                no_check: false,
+            }),
+            ctx,
+            out,
+        ),
         Some(Subcommands::List {
             filter,
             local,
@@ -46,7 +42,7 @@ pub async fn handle(
             let ahead = !no_ahead; // Invert the flag
             let check = !no_check; // Invert the flag
             list::list(
-                legacy_project,
+                &ctx.legacy_project,
                 local,
                 remote,
                 all,
@@ -55,8 +51,7 @@ pub async fn handle(
                 filter,
                 out,
                 check,
-            )
-            .await?;
+            )?;
             Ok(())
         }
         Some(Subcommands::Show {
@@ -66,22 +61,18 @@ pub async fn handle(
             ai,
             check,
         }) => {
-            show::show(legacy_project, &branch_id, out, review, files, ai, check).await?;
+            show::show(ctx, &branch_id, out, review, files, ai, check)?;
             Ok(())
         }
         Some(Subcommands::New {
             branch_name,
             anchor,
         }) => {
-            let mut ctx = Context::new_from_legacy_project_and_settings(
-                legacy_project,
-                AppSettings::load_from_default_path_creating_without_customization()?,
-            );
-            let mut id_map = IdMap::new_from_context(&ctx)?;
-            id_map.add_file_info_from_context(&mut ctx)?;
+            let mut id_map = IdMap::new_from_context(ctx, None)?;
+            id_map.add_committed_file_info_from_context(ctx)?;
             // Get branch name or use canned name
             let branch_name = branch_name.map(Ok).unwrap_or_else(|| {
-                but_api::legacy::workspace::canned_branch_name(legacy_project.id)
+                but_api::legacy::workspace::canned_branch_name(ctx.legacy_project.id)
             })?;
 
             // Store anchor string for JSON output
@@ -106,7 +97,7 @@ pub async fn handle(
                 // Create the anchor for create_reference
                 // as dependent branch
                 match anchor_id {
-                    CliId::Commit(oid) => {
+                    CliId::Commit { commit_id: oid, .. } => {
                         Some(but_api::legacy::stack::create_reference::Anchor::AtCommit {
                             commit_id: (*oid).into(),
                             position: but_workspace::branch::create_reference::Position::Above,
@@ -130,7 +121,7 @@ pub async fn handle(
                 None
             };
             but_api::legacy::stack::create_reference(
-                legacy_project.id,
+                ctx.legacy_project.id,
                 but_api::legacy::stack::create_reference::Request {
                     new_name: branch_name.clone(),
                     anchor,
@@ -152,7 +143,7 @@ pub async fn handle(
         }
         Some(Subcommands::Delete { branch_name, force }) => {
             let stacks = but_api::legacy::workspace::stacks(
-                legacy_project.id,
+                ctx.legacy_project.id,
                 Some(but_workspace::legacy::StacksFilter::InWorkspace),
             )?;
 
@@ -164,7 +155,13 @@ pub async fn handle(
                 }
 
                 if let Some(sid) = stack_entry.id {
-                    return confirm_branch_deletion(legacy_project, sid, &branch_name, force, out);
+                    return confirm_branch_deletion(
+                        &ctx.legacy_project,
+                        sid,
+                        &branch_name,
+                        force,
+                        out,
+                    );
                 }
             }
 
@@ -173,10 +170,12 @@ pub async fn handle(
             }
             Ok(())
         }
-        Some(Subcommands::Apply { branch_name }) => apply::apply(legacy_project, &branch_name, out),
+        Some(Subcommands::Apply { branch_name }) => {
+            apply::apply(&ctx.legacy_project, &branch_name, out)
+        }
         Some(Subcommands::Unapply { branch_name, force }) => {
             let stacks = but_api::legacy::workspace::stacks(
-                legacy_project.id,
+                ctx.legacy_project.id,
                 Some(but_workspace::legacy::StacksFilter::InWorkspace),
             )?;
 
@@ -188,7 +187,13 @@ pub async fn handle(
                 }
 
                 if let Some(sid) = stack_entry.id {
-                    return confirm_unapply_stack(legacy_project, sid, stack_entry, force, out);
+                    return confirm_unapply_stack(
+                        &ctx.legacy_project,
+                        sid,
+                        stack_entry,
+                        force,
+                        out,
+                    );
                 }
             }
 
@@ -214,22 +219,17 @@ fn confirm_unapply_stack(
         .collect::<Vec<_>>()
         .join(", ");
 
-    if !force && out.for_human().is_some() {
-        use std::io::Write;
-        let mut stdout = std::io::stdout();
-        writeln!(
-            stdout,
-            "Are you sure you want to unapply stack with branches '{}'? [y/N]:",
-            branches
-        )?;
+    if !force && let Some(mut inout) = out.prepare_for_terminal_input() {
+        let abort_msg = "Aborted unapply operation.";
+        let input = inout
+            .prompt(format!(
+                "Are you sure you want to unapply stack with branches '{branches}'? [y/N]:"
+            ))?
+            .context(abort_msg)?
+            .to_lowercase();
 
-        std::io::stdout().flush()?;
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-
-        let input = input.trim().to_lowercase();
         if input != "y" && input != "yes" {
-            bail!("Aborted unapply operation.");
+            bail!(abort_msg);
         }
     }
 
@@ -256,22 +256,18 @@ fn confirm_branch_deletion(
     force: bool,
     out: &mut OutputChannel,
 ) -> Result<(), anyhow::Error> {
-    if !force && out.for_human().is_some() {
-        use std::io::Write;
-        let mut stdout = std::io::stdout();
-        writeln!(
-            stdout,
-            "Are you sure you want to delete branch '{}'? [y/N]:",
-            branch_name
-        )?;
+    if !force && let Some(mut inout) = out.prepare_for_terminal_input() {
+        let abort_msg = "Aborted branch deletion.";
+        let input = inout
+            .prompt(format!(
+                "Are you sure you want to delete branch '{}'? [y/N]:",
+                branch_name
+            ))?
+            .context(abort_msg)?
+            .to_lowercase();
 
-        std::io::stdout().flush()?;
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-
-        let input = input.trim().to_lowercase();
         if input != "y" && input != "yes" {
-            bail!("Aborted branch deletion.");
+            bail!(abort_msg);
         }
     }
 

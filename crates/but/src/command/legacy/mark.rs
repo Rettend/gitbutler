@@ -5,19 +5,17 @@ use but_core::ref_metadata::StackId;
 use but_ctx::Context;
 use but_rules::Operation;
 use gitbutler_commit::commit_ext::CommitExt;
-use gitbutler_project::Project;
 
 use crate::{CliId, IdMap, command::legacy::rub::branch_name_to_stack_id, utils::OutputChannel};
 
 pub(crate) fn handle(
-    project: &Project,
+    ctx: &mut Context,
     out: &mut OutputChannel,
     target_str: &str,
     delete: bool,
 ) -> anyhow::Result<()> {
-    let ctx = &mut Context::new_from_legacy_project(project.clone())?;
-    let mut id_map = IdMap::new_from_context(ctx)?;
-    id_map.add_file_info_from_context(ctx)?;
+    let mut id_map = IdMap::new_from_context(ctx, None)?;
+    id_map.add_committed_file_info_from_context(ctx)?;
     let target_result = id_map.resolve_entity_to_ids(target_str)?;
     if target_result.len() != 1 {
         return Err(anyhow::anyhow!(
@@ -32,7 +30,7 @@ pub(crate) fn handle(
     }
     match target_result[0].clone() {
         CliId::Branch { name, .. } => mark_branch(ctx, name, delete, out),
-        CliId::Commit(oid) => mark_commit(ctx, oid, delete, out),
+        CliId::Commit { commit_id: oid, .. } => mark_commit(ctx, oid, delete, out),
         _ => bail!("Nope"),
     }
 }
@@ -143,9 +141,7 @@ pub(crate) fn commit_marked(ctx: &mut Context, commit_id: String) -> anyhow::Res
     Ok(rules)
 }
 
-pub(crate) fn unmark(project: &Project, out: &mut OutputChannel) -> anyhow::Result<()> {
-    let ctx = &mut Context::new_from_legacy_project(project.clone())?;
-
+pub(crate) fn unmark(ctx: &mut Context, out: &mut OutputChannel) -> anyhow::Result<()> {
     let rules = but_rules::list_rules(ctx)?;
     let rule_count = rules.len();
 

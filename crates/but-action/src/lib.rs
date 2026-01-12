@@ -49,9 +49,7 @@ pub fn freestyle(
     chat_messages: Vec<openai::ChatMessage>,
     model: Option<String>,
 ) -> anyhow::Result<String> {
-    let repo = ctx.open_repo()?;
-
-    let project_status = but_tools::workspace::get_project_status(ctx, &repo, None)?;
+    let project_status = but_tools::workspace::get_project_status(ctx, None)?;
     let serialized_status = serde_json::to_string_pretty(&project_status)
         .map_err(|e| anyhow::anyhow!("Failed to serialize project status: {}", e))?;
 
@@ -254,9 +252,7 @@ fn stacks_creating_if_none(
         )?;
         let create_req = BranchCreateRequest {
             name: Some(branch_name),
-            ownership: None,
             order: None,
-            selected_for_changes: None,
         };
         let stack = gitbutler_branch_actions::create_virtual_branch(ctx, &create_req, perm)?;
         Ok(vec![stack.into()])

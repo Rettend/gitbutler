@@ -2,11 +2,13 @@
 
 use anyhow::{Result, anyhow};
 use petgraph::{Direction, visit::EdgeRef};
+use serde::{Deserialize, Serialize};
 
-use crate::graph_rebase::{Edge, Editor, Selector, Step};
+use crate::graph_rebase::{Edge, Editor, Pick, Selector, Step};
 
 /// Describes where relative to the selector a step should be inserted
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum InsertSide {
     /// When inserting above, any nodes that point to the selector will now
     /// point to the inserted node instead.
@@ -39,7 +41,7 @@ impl Editor {
     /// Get a selector to a particular commit in the graph
     pub fn try_select_commit(&self, target: gix::ObjectId) -> Option<Selector> {
         for node_idx in self.graph.node_indices() {
-            if let Step::Pick { id, .. } = self.graph[node_idx]
+            if let Step::Pick(Pick { id, .. }) = self.graph[node_idx]
                 && id == target
             {
                 return Some(Selector {

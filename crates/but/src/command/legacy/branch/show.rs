@@ -1,4 +1,5 @@
 use but_ctx::Context;
+use but_oxidize::OidExt;
 use colored::Colorize;
 use gitbutler_project::Project;
 use tracing::instrument;
@@ -7,8 +8,8 @@ use super::list::load_id_map;
 use crate::utils::OutputChannel;
 
 #[allow(clippy::too_many_arguments)]
-pub async fn show(
-    project: &Project,
+pub fn show(
+    ctx: &mut Context,
     branch_id: &str,
     out: &mut OutputChannel,
     review: bool,
@@ -16,7 +17,7 @@ pub async fn show(
     generate_ai_summary: bool,
     check_merge: bool,
 ) -> anyhow::Result<()> {
-    let id_map = load_id_map(project)?;
+    let id_map = load_id_map(&ctx.legacy_project)?;
 
     // Find the branch name from the ID
     let branch_name = if branch_id.len() == 2 {
@@ -37,32 +38,34 @@ pub async fn show(
     };
 
     // Get the list of commits ahead of base for this branch
-    let commits = get_commits_ahead(project, &branch_name, show_files)?;
+    let commits = get_commits_ahead(&ctx.legacy_project, &branch_name, show_files)?;
 
     // Get unassigned files for this branch
-    let unassigned_files = get_unassigned_files(project, &branch_name)?;
+    let unassigned_files = get_unassigned_files(ctx, &branch_name)?;
 
     // Get review information if requested
     let reviews = if review {
-        crate::command::legacy::forge::review::get_review_map(project)
-            .await?
-            .get(&branch_name)
-            .cloned()
-            .unwrap_or_default()
+        crate::command::legacy::forge::review::get_review_map(
+            &ctx.legacy_project,
+            Some(but_forge::CacheConfig::CacheOnly),
+        )?
+        .get(&branch_name)
+        .cloned()
+        .unwrap_or_default()
     } else {
         Vec::new()
     };
 
     // Generate AI summary if requested
     let ai_summary = if generate_ai_summary {
-        Some(generate_branch_summary(&branch_name, &commits).await?)
+        Some(generate_branch_summary(&branch_name, &commits)?)
     } else {
         None
     };
 
     // Check merge conflicts if requested
     let merge_check = if check_merge {
-        Some(check_merge_conflicts(project, &branch_name)?)
+        Some(check_merge_conflicts(&ctx.legacy_project, &branch_name)?)
     } else {
         None
     };
@@ -118,12 +121,11 @@ fn check_merge_conflicts(
     project: &Project,
     branch_name: &str,
 ) -> Result<MergeCheck, anyhow::Error> {
-    use but_oxidize::GixRepositoryExt;
+    use but_core::RepositoryExt;
 
     let ctx = Context::new_from_legacy_project(project.clone())?;
     let git2_repo = &*ctx.git2_repo.get()?;
-    let repo = ctx.open_repo()?;
-    let gix_repo = repo.for_tree_diffing()?.with_object_memory();
+    let repo = ctx.clone_repo_for_merging_non_persisting()?;
 
     // Get the target (remote tracking branch like origin/master)
     let stack = gitbutler_stack::VirtualBranchesHandle::new(project.gb_dir());
@@ -135,7 +137,7 @@ fn check_merge_conflicts(
         target.branch.remote(),
         target.branch.branch()
     );
-    let target_commit = match gix_repo.find_reference(&target_ref_name) {
+    let target_commit = match repo.find_reference(&target_ref_name) {
         Ok(reference) => {
             let target_oid = reference.id();
             git2_repo.find_commit(but_oxidize::gix_to_git2_oid(target_oid))?
@@ -160,10 +162,10 @@ fn check_merge_conflicts(
     let merge_base_commit = git2_repo.find_commit(merge_base)?;
 
     // Check if branch merges cleanly into target
-    let merges_cleanly = gix_repo.merges_cleanly_compat(
-        merge_base_commit.tree_id(),
-        target_commit.tree_id(),
-        branch_commit.tree_id(),
+    let merges_cleanly = repo.merges_cleanly(
+        merge_base_commit.tree_id().to_gix(),
+        target_commit.tree_id().to_gix(),
+        branch_commit.tree_id().to_gix(),
     )?;
 
     let mut conflicting_files = Vec::new();
@@ -172,7 +174,7 @@ fn check_merge_conflicts(
     if !merges_cleanly {
         // Get the list of conflicting files from the merge
         let conflict_paths = get_merge_conflict_paths(
-            &gix_repo,
+            &repo,
             merge_base_commit.tree_id(),
             target_commit.tree_id(),
             branch_commit.tree_id(),
@@ -206,7 +208,7 @@ fn get_merge_conflict_paths(
     ours_tree: git2::Oid,
     theirs_tree: git2::Oid,
 ) -> Result<Vec<String>, anyhow::Error> {
-    use but_oxidize::GixRepositoryExt;
+    use but_core::RepositoryExt;
 
     let (options, conflict_kind) = gix_repo.merge_options_fail_fast()?;
     let merge_result = gix_repo.merge_trees(
@@ -445,7 +447,7 @@ fn get_commits_ahead(
 }
 
 fn get_unassigned_files(
-    project: &Project,
+    ctx: &mut Context,
     branch_name: &str,
 ) -> Result<Vec<String>, anyhow::Error> {
     use std::collections::BTreeMap;
@@ -455,7 +457,7 @@ fn get_unassigned_files(
 
     // Find the stack that contains this branch
     let stacks = but_api::legacy::workspace::stacks(
-        project.id,
+        ctx.legacy_project.id,
         Some(but_workspace::legacy::StacksFilter::InWorkspace),
     )?;
 
@@ -467,7 +469,7 @@ fn get_unassigned_files(
 
     if let Some(stack_id) = stack_id {
         // Get worktree changes and assignments
-        let worktree_changes = but_api::legacy::diff::changes_in_worktree(project.id)?;
+        let worktree_changes = but_api::legacy::diff::changes_in_worktree(ctx)?;
 
         let mut by_file: BTreeMap<BString, Vec<HunkAssignment>> = BTreeMap::new();
         for assignment in worktree_changes.assignments {
@@ -517,10 +519,7 @@ struct CommitInfo {
 }
 
 #[instrument(skip(commits))]
-async fn generate_branch_summary(
-    branch_name: &str,
-    commits: &[CommitInfo],
-) -> anyhow::Result<String> {
+fn generate_branch_summary(branch_name: &str, commits: &[CommitInfo]) -> anyhow::Result<String> {
     use async_openai::types::chat::{
         ChatCompletionRequestSystemMessage, ChatCompletionRequestUserMessageArgs,
         CreateChatCompletionRequestArgs,
@@ -580,7 +579,13 @@ async fn generate_branch_summary(
         .max_completion_tokens(500u32)
         .build()?;
 
-    let response = client.chat().create(request).await?;
+    let response = std::thread::spawn(move || {
+        tokio::runtime::Runtime::new()
+            .unwrap()
+            .block_on(client.chat().create(request))
+    })
+    .join()
+    .map_err(|e| anyhow::anyhow!("Failed to join thread: {:?}", e))??;
 
     // Extract the summary from the response
     let summary = response

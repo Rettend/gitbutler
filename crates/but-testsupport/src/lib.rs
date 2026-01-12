@@ -216,6 +216,13 @@ pub fn git_status_at_dir(dir: impl AsRef<Path>) -> std::io::Result<String> {
     Ok(out.stdout.to_str().expect("no illformed UTF-8").to_string())
 }
 
+/// Gets the content of a commit at a specific revision, similar to
+/// `git cat-file commit <revision>`
+pub fn cat_commit(repo: &gix::Repository, arg: &str) -> anyhow::Result<String> {
+    let commit_id = repo.rev_parse_single(arg)?;
+    Ok(repo.find_commit(commit_id)?.data.to_str_lossy().to_string())
+}
+
 /// Show one index entry per line, without content.
 pub fn visualize_index(index: &gix::index::State) -> String {
     use std::fmt::Write;

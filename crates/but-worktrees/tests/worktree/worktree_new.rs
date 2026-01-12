@@ -1,8 +1,9 @@
-use crate::util::test_ctx;
 use anyhow::Context as _;
 use but_meta::VirtualBranchesTomlMetadata;
 use but_workspace::legacy::{StacksFilter, stacks_v3};
 use but_worktrees::new::worktree_new;
+
+use crate::util::test_ctx;
 
 #[test]
 fn can_create_worktree_from_feature_a() -> anyhow::Result<()> {
@@ -10,7 +11,7 @@ fn can_create_worktree_from_feature_a() -> anyhow::Result<()> {
     let mut test_ctx = test_ctx("stacked-and-parallel")?;
 
     let guard = test_ctx.ctx.exclusive_worktree_access();
-    let repo = test_ctx.ctx.open_repo_for_merging()?;
+    let repo = test_ctx.ctx.clone_repo_for_merging()?;
     let meta = VirtualBranchesTomlMetadata::from_path(
         test_ctx
             .ctx
@@ -58,7 +59,7 @@ fn can_create_worktree_from_feature_b() -> anyhow::Result<()> {
     let mut test_ctx = test_ctx("stacked-and-parallel")?;
 
     let guard = test_ctx.ctx.exclusive_worktree_access();
-    let repo = test_ctx.ctx.open_repo_for_merging()?;
+    let repo = test_ctx.ctx.clone_repo_for_merging()?;
     let meta = VirtualBranchesTomlMetadata::from_path(
         test_ctx
             .ctx
@@ -106,7 +107,7 @@ fn can_create_worktree_from_feature_c() -> anyhow::Result<()> {
     let mut test_ctx = test_ctx("stacked-and-parallel")?;
 
     let guard = test_ctx.ctx.exclusive_worktree_access();
-    let repo = test_ctx.ctx.open_repo_for_merging()?;
+    let repo = test_ctx.ctx.clone_repo_for_merging()?;
     let meta = VirtualBranchesTomlMetadata::from_path(
         test_ctx
             .ctx

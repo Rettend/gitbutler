@@ -66,7 +66,7 @@ pub fn status(project: Project) -> Result<()> {
 }
 
 pub(crate) fn stacks(ctx: &Context) -> Result<Vec<(StackId, StackDetails)>> {
-    let repo = ctx.open_repo_for_merging_non_persisting()?;
+    let repo = ctx.clone_repo_for_merging_non_persisting()?;
     let stacks = {
         let meta = VirtualBranchesTomlMetadata::from_path(
             ctx.project_data_dir().join("virtual_branches.toml"),
@@ -173,11 +173,8 @@ fn set_default_branch(project: &Project, stack: &Stack) -> Result<()> {
         BranchUpdateRequest {
             id: Some(stack.id),
             name: None,
-            notes: None,
-            ownership: None,
             order: None,
             upstream: None,
-            selected_for_changes: Some(true),
             allow_rebasing: None,
         },
     )
@@ -186,7 +183,7 @@ fn set_default_branch(project: &Project, stack: &Stack) -> Result<()> {
 pub fn series(project: Project, stack_name: String, new_series_name: String) -> Result<()> {
     let mut stack = stack_by_name(&project, &stack_name)?;
     let ctx = Context::new_from_legacy_project(project.clone())?;
-    stack.add_series_top_of_stack(&ctx, new_series_name, None)?;
+    stack.add_series_top_of_stack(&ctx, new_series_name)?;
     Ok(())
 }
 

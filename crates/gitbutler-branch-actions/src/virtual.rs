@@ -1,8 +1,9 @@
 use std::{collections::HashMap, path::PathBuf, vec};
 
 use anyhow::{Context as _, Result, anyhow, bail};
+use but_core::RepositoryExt;
 use but_ctx::Context;
-use but_oxidize::{GixRepositoryExt, ObjectIdExt, OidExt, git2_to_gix_object_id, gix_to_git2_oid};
+use but_oxidize::{ObjectIdExt, OidExt, git2_to_gix_object_id, gix_to_git2_oid};
 use but_rebase::RebaseStep;
 use but_workspace::legacy::stack_ext::StackExt;
 use gitbutler_branch::{BranchUpdateRequest, dedup};
@@ -12,14 +13,11 @@ use gitbutler_diff::GitHunk;
 use gitbutler_project::AUTO_TRACK_LIMIT_BYTES;
 use gitbutler_reference::{Refname, RemoteRefname, normalize_branch_name};
 use gitbutler_repo::{
-    RepositoryExt,
+    RepositoryExt as _,
     logging::{LogUntil, RepositoryExt as _},
 };
 use gitbutler_repo_actions::RepoActionsExt;
-use gitbutler_stack::{
-    BranchOwnershipClaims, Stack, StackId, Target, VirtualBranchesHandle, reconcile_claims,
-};
-use gitbutler_time::time::now_since_unix_epoch_ms;
+use gitbutler_stack::{BranchOwnershipClaims, Stack, StackId, Target};
 use itertools::Itertools;
 use serde::Serialize;
 
@@ -32,6 +30,10 @@ pub struct PushResult {
     pub remote: String,
     /// The list of pushed branches and their corresponding remote refnames.
     pub branch_to_remote: Vec<(String, Refname)>,
+    /// The list of branches with their before/after commit SHAs.
+    /// Format: (branch_name, before_sha, after_sha)
+    /// SHAs are stored as hex strings for serialization
+    pub branch_sha_updates: Vec<(String, String, String)>,
 }
 
 fn find_base_tree<'a>(
@@ -66,11 +68,6 @@ impl From<but_workspace::ui::Author> for crate::author::Author {
 pub fn update_stack(ctx: &Context, update: &BranchUpdateRequest) -> Result<Stack> {
     let vb_state = ctx.legacy_project.virtual_branches();
     let mut stack = vb_state.get_stack_in_workspace(update.id.context("BUG(opt-stack-id)")?)?;
-
-    if let Some(ownership) = update.ownership.clone() {
-        let claim = ownership.into();
-        set_ownership(&vb_state, &mut stack, &claim).context("failed to set ownership")?;
-    }
 
     if let Some(name) = &update.name {
         let all_virtual_branches = vb_state
@@ -108,29 +105,8 @@ pub fn update_stack(ctx: &Context, update: &BranchUpdateRequest) -> Result<Stack
         stack.upstream = Some(remote_branch);
     };
 
-    if let Some(notes) = update.notes.clone() {
-        stack.notes = notes;
-    };
-
     if let Some(order) = update.order {
         stack.order = order;
-    };
-
-    if let Some(selected_for_changes) = update.selected_for_changes {
-        stack.selected_for_changes = if selected_for_changes {
-            for mut other_branch in vb_state
-                .list_stacks_in_workspace()
-                .context("failed to read virtual branches")?
-                .into_iter()
-                .filter(|b| b.id != stack.id)
-            {
-                other_branch.selected_for_changes = None;
-                vb_state.set_stack(other_branch.clone())?;
-            }
-            Some(now_since_unix_epoch_ms())
-        } else {
-            None
-        };
     };
 
     if let Some(allow_rebasing) = update.allow_rebasing {
@@ -139,58 +115,6 @@ pub fn update_stack(ctx: &Context, update: &BranchUpdateRequest) -> Result<Stack
 
     vb_state.set_stack(stack.clone())?;
     Ok(stack)
-}
-
-pub(crate) fn ensure_selected_for_changes(vb_state: &VirtualBranchesHandle) -> Result<()> {
-    let mut stacks = vb_state
-        .list_stacks_in_workspace()
-        .context("failed to list branches")?;
-
-    if stacks.is_empty() {
-        println!("no applied branches");
-        return Ok(());
-    }
-
-    if stacks.iter().any(|b| b.selected_for_changes.is_some()) {
-        println!("some branches already selected for changes");
-        return Ok(());
-    }
-
-    stacks.sort_by_key(|branch| branch.order);
-
-    stacks[0].selected_for_changes = Some(now_since_unix_epoch_ms());
-    vb_state.set_stack(stacks[0].clone())?;
-    Ok(())
-}
-
-pub(crate) fn set_ownership(
-    vb_state: &VirtualBranchesHandle,
-    target_branch: &mut Stack,
-    ownership: &BranchOwnershipClaims,
-) -> Result<()> {
-    if target_branch.ownership.eq(ownership) {
-        // nothing to update
-        return Ok(());
-    }
-
-    let stacks = vb_state
-        .list_stacks_in_workspace()
-        .context("failed to read virtual branches")?;
-
-    let mut claim_outcomes = reconcile_claims(stacks, target_branch, &ownership.claims)?;
-    for claim_outcome in &mut claim_outcomes {
-        if !claim_outcome.removed_claims.is_empty() {
-            vb_state
-                .set_stack(claim_outcome.updated_branch.clone())
-                .context("failed to write ownership for branch".to_string())?;
-        }
-    }
-
-    // Updates the claiming branch that was passed as mutable state with the new ownership claims
-    // TODO: remove mutable reference to target_branch
-    target_branch.ownership = ownership.clone();
-
-    Ok(())
 }
 
 pub type BranchStatus = HashMap<PathBuf, Vec<gitbutler_diff::GitHunk>>;
@@ -412,7 +336,7 @@ pub fn is_remote_branch_mergeable(ctx: &Context, branch_name: &RemoteRefname) ->
     let wd_tree = git2_repo.create_wd_tree(AUTO_TRACK_LIMIT_BYTES)?;
 
     let branch_tree = branch_commit.tree().context("failed to find branch tree")?;
-    let gix_repo_in_memory = ctx.open_repo_for_merging()?.with_object_memory();
+    let gix_repo_in_memory = ctx.clone_repo_for_merging()?.with_object_memory();
     let (merge_options_fail_fast, conflict_kind) =
         gix_repo_in_memory.merge_options_no_rewrites_fail_fast()?;
     let mergeable = !gix_repo_in_memory

@@ -276,13 +276,21 @@ pub fn stack_details_v3(
             // another way that still allows to extend the range via gas-stations. Maybe one day we won't need this.
             ref_info_options.traversal.hard_limit = Some(500);
             let mut info = head_info(repo, meta, ref_info_options)?;
-            if info.stacks.len() != 1 {
-                bail!(
-                    "BUG(opt-stack-id): should have gotten exactly one stack, got {}",
-                    info.stacks.len()
-                );
+            if info.is_entrypoint {
+                if info.stacks.len() != 1 {
+                    bail!(
+                        "BUG(opt-stack-id): should have gotten exactly one stack, got {}",
+                        info.stacks.len()
+                    );
+                }
+                info.stacks.pop().unwrap()
+            } else {
+                info.stacks
+                    .iter()
+                    .find(|stack| stack.segments.iter().any(|segment| segment.is_entrypoint))
+                    .cloned()
+                    .context("BUG: expected to find one segment with entrypoint")?
             }
-            info.stacks.pop().unwrap()
         }
         Some(stack_id) => {
             // Even though it shouldn't be the case, the ids can totally go out of sync. Use both to play it safer.
@@ -377,11 +385,10 @@ impl ui::BranchDetails {
         let ref_info = ref_info
             .clone()
             .context("Can't handle a stack yet whose tip isn't pointed to by a ref")?;
-        let (description, updated_at, review_id, pr_number) = metadata
+        let (updated_at, review_id, pr_number) = metadata
             .clone()
             .map(|meta| {
                 (
-                    meta.description,
                     meta.ref_info.updated_at,
                     meta.review.review_id,
                     meta.review.pull_request,
@@ -395,6 +402,7 @@ impl ui::BranchDetails {
                 .category()
                 .is_some_and(|c| matches!(c, gix::refs::Category::RemoteBranch)),
             name: ref_info.ref_name.shorten().into(),
+            reference: ref_info.ref_name,
             linked_worktree_id: ref_info.worktree.and_then(|ws| match ws {
                 but_graph::Worktree::Main => None,
                 but_graph::Worktree::LinkedId(id) => Some(id),
@@ -402,7 +410,6 @@ impl ui::BranchDetails {
             remote_tracking_branch: remote_tracking_ref_name
                 .as_ref()
                 .map(|full_name| full_name.as_bstr().into()),
-            description,
             pr_number,
             review_id,
             tip: commits_unique_from_tip
@@ -458,7 +465,6 @@ pub fn stack_branches(stack_id: StackId, ctx: &Context) -> anyhow::Result<Vec<ui
         let result = ui::Branch {
             name: internal.name().to_owned().into(),
             remote_tracking_branch: upstream_reference.map(Into::into),
-            description: internal.description.clone(),
             pr_number: internal.pr_number,
             review_id: internal.review_id.clone(),
             archived: internal.archived,

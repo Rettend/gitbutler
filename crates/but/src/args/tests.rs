@@ -14,7 +14,7 @@ mod push {
         #[test]
         fn non_gerrit_mode() {
             let args = Args {
-                branch_id: "test".to_string(),
+                branch_id: Some("test".to_string()),
                 with_force: true,
                 skip_force_push_protection: false,
                 run_hooks: true,
@@ -24,6 +24,7 @@ mod push {
                 topic: None,
                 topic_from_branch: false,
                 private: false,
+                dry_run: false,
             };
 
             let result = get_gerrit_flags(&args, "test-branch", false);
@@ -34,7 +35,7 @@ mod push {
         #[test]
         fn error_when_flags_without_gerrit_mode() {
             let args = Args {
-                branch_id: "test".to_string(),
+                branch_id: Some("test".to_string()),
                 with_force: true,
                 skip_force_push_protection: false,
                 run_hooks: true,
@@ -44,6 +45,7 @@ mod push {
                 topic: None,
                 topic_from_branch: false,
                 private: false,
+                dry_run: false,
             };
 
             let result = get_gerrit_flags(&args, "test-branch", false);
@@ -59,7 +61,7 @@ mod push {
         #[test]
         fn default_ready() {
             let args = Args {
-                branch_id: "test".to_string(),
+                branch_id: Some("test".to_string()),
                 with_force: true,
                 skip_force_push_protection: false,
                 run_hooks: true,
@@ -69,6 +71,7 @@ mod push {
                 topic: None,
                 topic_from_branch: false,
                 private: false,
+                dry_run: false,
             };
 
             let result = get_gerrit_flags(&args, "test-branch", true);
@@ -81,7 +84,7 @@ mod push {
         #[test]
         fn wip() {
             let args = Args {
-                branch_id: "test".to_string(),
+                branch_id: Some("test".to_string()),
                 with_force: true,
                 skip_force_push_protection: false,
                 run_hooks: true,
@@ -91,6 +94,7 @@ mod push {
                 topic: None,
                 topic_from_branch: false,
                 private: false,
+                dry_run: false,
             };
 
             let result = get_gerrit_flags(&args, "test-branch", true);
@@ -103,7 +107,7 @@ mod push {
         #[test]
         fn multiple_hashtags() {
             let args = Args {
-                branch_id: "test".to_string(),
+                branch_id: Some("test".to_string()),
                 with_force: true,
                 skip_force_push_protection: false,
                 run_hooks: true,
@@ -113,6 +117,7 @@ mod push {
                 topic: None,
                 topic_from_branch: false,
                 private: false,
+                dry_run: false,
             };
 
             let result = get_gerrit_flags(&args, "test-branch", true);
@@ -136,7 +141,7 @@ mod push {
         #[test]
         fn topic_from_custom() {
             let args = Args {
-                branch_id: "test".to_string(),
+                branch_id: Some("test".to_string()),
                 with_force: true,
                 skip_force_push_protection: false,
                 run_hooks: true,
@@ -146,6 +151,7 @@ mod push {
                 topic: Some("custom-topic".to_string()),
                 topic_from_branch: false,
                 private: false,
+                dry_run: false,
             };
 
             let result = get_gerrit_flags(&args, "test-branch", true);
@@ -166,7 +172,7 @@ mod push {
         #[test]
         fn topic_from_branch() {
             let args = Args {
-                branch_id: "test".to_string(),
+                branch_id: Some("test".to_string()),
                 with_force: true,
                 skip_force_push_protection: false,
                 run_hooks: true,
@@ -176,6 +182,7 @@ mod push {
                 topic: None,
                 topic_from_branch: true,
                 private: false,
+                dry_run: false,
             };
 
             let result = get_gerrit_flags(&args, "my-branch-name", true);
@@ -196,7 +203,7 @@ mod push {
         #[test]
         fn private() {
             let args = Args {
-                branch_id: "test".to_string(),
+                branch_id: Some("test".to_string()),
                 with_force: true,
                 skip_force_push_protection: false,
                 run_hooks: true,
@@ -206,6 +213,7 @@ mod push {
                 topic: None,
                 topic_from_branch: false,
                 private: true,
+                dry_run: false,
             };
 
             let result = get_gerrit_flags(&args, "test-branch", true);
@@ -223,7 +231,7 @@ mod push {
         #[test]
         fn all_combined() {
             let args = Args {
-                branch_id: "test".to_string(),
+                branch_id: Some("test".to_string()),
                 with_force: true,
                 skip_force_push_protection: false,
                 run_hooks: true,
@@ -233,6 +241,7 @@ mod push {
                 topic: Some("custom-topic".to_string()),
                 topic_from_branch: false,
                 private: true,
+                dry_run: false,
             };
 
             let result = get_gerrit_flags(&args, "test-branch", true);
@@ -268,7 +277,7 @@ mod push {
         #[test]
         fn empty_hashtag_error() {
             let args = Args {
-                branch_id: "test".to_string(),
+                branch_id: Some("test".to_string()),
                 with_force: true,
                 skip_force_push_protection: false,
                 run_hooks: true,
@@ -278,6 +287,7 @@ mod push {
                 topic: None,
                 topic_from_branch: false,
                 private: false,
+                dry_run: false,
             };
 
             let result = get_gerrit_flags(&args, "test-branch", true);
@@ -293,7 +303,7 @@ mod push {
         #[test]
         fn empty_topic_error() {
             let args = Args {
-                branch_id: "test".to_string(),
+                branch_id: Some("test".to_string()),
                 with_force: true,
                 skip_force_push_protection: false,
                 run_hooks: true,
@@ -303,6 +313,7 @@ mod push {
                 topic: Some("  ".to_string()),
                 topic_from_branch: false,
                 private: false,
+                dry_run: false,
             };
 
             let result = get_gerrit_flags(&args, "test-branch", true);

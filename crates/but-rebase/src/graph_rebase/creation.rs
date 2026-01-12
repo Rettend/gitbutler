@@ -5,7 +5,8 @@ use but_graph::{Commit, CommitFlags, Graph, Segment};
 use petgraph::Direction;
 
 use crate::graph_rebase::{
-    Checkout, Edge, Editor, RevisionHistory, Selector, Step, StepGraph, StepGraphIndex,
+    Checkout, Edge, Editor, Pick, RevisionHistory, Selector, Step, StepGraph, StepGraphIndex,
+    SuccessfulRebase,
 };
 
 /// Provides an extension for creating an Editor out of the segment graph
@@ -28,6 +29,7 @@ impl GraphExt for Graph {
         let mut references: BTreeMap<gix::ObjectId, Vec<gix::refs::FullName>> = BTreeMap::new();
 
         let mut head_refname = None;
+        let workspace_commit_id = self.managed_entrypoint_commit(repo)?.map(|c| c.id);
 
         self.visit_all_segments_including_start_until(
             entrypoint.segment_index,
@@ -98,10 +100,13 @@ impl GraphExt for Graph {
                 None
             };
 
-            let mut ni = graph.add_node(Step::Pick {
-                id: c.id,
-                preserved_parents,
-            });
+            let mut pick = if Some(c.id) == workspace_commit_id {
+                Pick::new_workspace_pick(c.id)
+            } else {
+                Pick::new_pick(c.id)
+            };
+            pick.preserved_parents = preserved_parents;
+            let mut ni = graph.add_node(Step::Pick(pick));
             let base_ni = ni;
 
             // Add and link references on top
@@ -150,6 +155,19 @@ impl GraphExt for Graph {
             repo: repo.clone().with_object_memory(),
             history: RevisionHistory::new(),
         })
+    }
+}
+
+impl SuccessfulRebase {
+    /// Converts a SuccessfulRebase back into another editor for multi-step operations
+    pub fn to_editor(self) -> Editor {
+        Editor {
+            graph: self.graph,
+            initial_references: self.initial_references,
+            checkouts: self.checkouts,
+            repo: self.repo,
+            history: self.history,
+        }
     }
 }
 

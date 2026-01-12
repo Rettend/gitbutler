@@ -1,9 +1,9 @@
 //! The machinery used to alter and mutate commits in various ways whilst adjusting descendant commits within a workspace.
 
 use anyhow::bail;
-use but_core::commit::HeadersV2;
 use but_core::{
     DiffSpec, RepositoryExt,
+    commit::HeadersV2,
     ref_metadata::StackId,
     tree::{CreateTreeOutcome, create_tree, create_tree::RejectionReason},
 };
@@ -194,7 +194,8 @@ pub fn create_commit(
                 Some(but_rebase::commit::create(
                     repo,
                     commit.inner,
-                    DateMode::CommitterUpdateAuthorUpdate,
+                    DateMode::CommitterUpdateAuthorKeep,
+                    true,
                 )?)
             }
         }
@@ -232,5 +233,5 @@ fn create_possibly_signed_commit(
             .unwrap_or_else(|| HeadersV2::from_config(&repo.config_snapshot())))
             .into(),
     };
-    but_rebase::commit::create(repo, commit, DateMode::CommitterKeepAuthorKeep)
+    but_rebase::commit::create(repo, commit, DateMode::CommitterKeepAuthorKeep, true)
 }

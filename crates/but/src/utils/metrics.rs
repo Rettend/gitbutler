@@ -56,19 +56,20 @@ impl Subcommands {
     fn to_metrics_command(&self) -> CommandName {
         use CommandName::*;
 
-        use crate::args::{base, branch, claude, cursor, forge, worktree};
+        use crate::args::{alias as alias_args, branch, claude, cursor, forge, worktree};
         match self {
             #[cfg(feature = "legacy")]
             Subcommands::Status { .. } => Status,
             #[cfg(feature = "legacy")]
-            Subcommands::Stf { .. } => Stf,
-            #[cfg(feature = "legacy")]
             Subcommands::Rub { .. } => Rub,
             #[cfg(feature = "legacy")]
-            Subcommands::Base(base::Platform { cmd }) => match cmd {
-                base::Subcommands::Update => BaseUpdate,
-                base::Subcommands::Check => BaseCheck,
-            },
+            Subcommands::Diff { .. } => Diff,
+            #[cfg(feature = "legacy")]
+            Subcommands::Show { .. } => Show,
+            #[cfg(feature = "legacy")]
+            Subcommands::Pull { .. } => Pull,
+            #[cfg(feature = "legacy")]
+            Subcommands::Fetch => Pull,
             Subcommands::Branch(branch::Platform { cmd }) => match cmd {
                 None => BranchList,
                 #[cfg(feature = "legacy")]
@@ -97,15 +98,17 @@ impl Subcommands {
             #[cfg(feature = "legacy")]
             Subcommands::New { .. } => New,
             #[cfg(feature = "legacy")]
-            Subcommands::Describe { .. } => Describe,
+            Subcommands::Reword { .. } => Reword,
             #[cfg(feature = "legacy")]
-            Subcommands::Oplog { .. } => Oplog,
+            Subcommands::Oplog(crate::args::oplog::Platform { cmd }) => match cmd {
+                None => OplogList,
+                Some(crate::args::oplog::Subcommands::List { .. }) => OplogList,
+                Some(crate::args::oplog::Subcommands::Snapshot { .. }) => OplogSnapshot,
+            },
             #[cfg(feature = "legacy")]
             Subcommands::Restore { .. } => Restore,
             #[cfg(feature = "legacy")]
             Subcommands::Undo => Undo,
-            #[cfg(feature = "legacy")]
-            Subcommands::Snapshot { .. } => Snapshot,
             #[cfg(feature = "legacy")]
             Subcommands::Claude(claude::Platform { cmd }) => match cmd {
                 claude::Subcommands::PreTool => ClaudePreTool,
@@ -122,9 +125,11 @@ impl Subcommands {
             #[cfg(feature = "legacy")]
             Subcommands::Absorb { .. } => Absorb,
             #[cfg(feature = "legacy")]
-            Subcommands::Review(forge::review::Platform { cmd }) => match cmd {
-                forge::review::Subcommands::Publish { .. } => PublishReview,
-                forge::review::Subcommands::Template { .. } => ReviewTemplate,
+            Subcommands::Discard { .. } => Discard,
+            #[cfg(feature = "legacy")]
+            Subcommands::Pr(forge::pr::Platform { cmd }) => match cmd {
+                None | Some(forge::pr::Subcommands::New { .. }) => PrNew,
+                Some(forge::pr::Subcommands::Template { .. }) => PrTemplate,
             },
             #[cfg(feature = "legacy")]
             Subcommands::Actions(_) | Subcommands::Mcp { .. } | Subcommands::Init { .. } => Unknown,
@@ -134,7 +139,27 @@ impl Subcommands {
                 forge::integration::Subcommands::ListUsers => ForgeListUsers,
             },
             Subcommands::Completions { .. } => Completions,
+            Subcommands::Help => Unknown,
+            Subcommands::Alias(alias_args::Platform { cmd }) => match cmd {
+                None | Some(alias_args::Subcommands::List) => AliasCheck,
+                Some(alias_args::Subcommands::Add { .. }) => AliasAdd,
+                Some(alias_args::Subcommands::Remove { .. }) => AliasRemove,
+            },
             Subcommands::Metrics { .. } => Unknown,
+            #[cfg(feature = "legacy")]
+            Subcommands::RefreshRemoteData { .. } => RefreshRemoteData,
+            #[cfg(feature = "legacy")]
+            Subcommands::Resolve { .. } => Resolve,
+            #[cfg(feature = "legacy")]
+            Subcommands::Uncommit { .. } => Rub,
+            #[cfg(feature = "legacy")]
+            Subcommands::Amend { .. } => Rub,
+            #[cfg(feature = "legacy")]
+            Subcommands::Stage { .. } => Rub,
+            #[cfg(feature = "legacy")]
+            Subcommands::Unstage { .. } => Rub,
+            #[cfg(feature = "legacy")]
+            Subcommands::Squash { .. } => Rub,
         }
     }
 }

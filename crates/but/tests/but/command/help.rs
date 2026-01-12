@@ -2,38 +2,6 @@ use snapbox::str;
 
 use crate::utils::Sandbox;
 
-#[cfg(not(feature = "legacy"))]
-#[test]
-fn looks_good_and_can_be_invoked_in_various_ways_non_legacy() -> anyhow::Result<()> {
-    let env = Sandbox::empty()?;
-    env.but("").assert().success().stdout_eq(snapbox::file![
-        "snapshots/help/no-arg-no-legacy.stdout.term.svg"
-    ]);
-    Ok(())
-}
-
-#[cfg(feature = "legacy")]
-#[test]
-fn looks_good_and_can_be_invoked_in_various_ways() -> anyhow::Result<()> {
-    let env = Sandbox::empty()?;
-    env.but("")
-        .assert()
-        .success()
-        .stdout_eq(snapbox::file!["snapshots/help/no-arg.stdout.term.svg"]);
-
-    env.but("-h")
-        .assert()
-        .success()
-        .stdout_eq(snapbox::file!["snapshots/help/no-arg.stdout.term.svg"]);
-
-    env.but("--help")
-        .assert()
-        .success()
-        .stdout_eq(snapbox::file!["snapshots/help/no-arg.stdout.term.svg"]);
-
-    Ok(())
-}
-
 #[cfg(feature = "legacy")]
 #[test]
 fn rub_looks_good() -> anyhow::Result<()> {
@@ -41,12 +9,14 @@ fn rub_looks_good() -> anyhow::Result<()> {
 
     // The help should be nice, as it's a complex command.
     env.but("rub --help")
+        .env("CLICOLOR_FORCE", "1")
         .assert()
         .success()
         .stdout_eq(snapbox::file![
             "snapshots/help/rub-long-help.stdout.term.svg"
         ]);
     env.but("rub -h")
+        .env("CLICOLOR_FORCE", "1")
         .assert()
         .success()
         .stdout_eq(snapbox::file![

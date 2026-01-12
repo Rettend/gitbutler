@@ -1,6 +1,6 @@
-use minus::ExitStrategy;
-
 use crate::{args::OutputFormat, utils::json_pretty_to_stdout};
+use minus::ExitStrategy;
+use std::io::{IsTerminal, Write};
 
 /// A utility `std::io::Write` implementation that can always be used to generate output for humans or for scripts.
 pub struct OutputChannel {
@@ -12,10 +12,59 @@ pub struct OutputChannel {
     pager: Option<minus::Pager>,
 }
 
-/// A channel to obtain various kinds of user input from a terminal, bypassing the pager.
-pub struct InputOutputChannel<'out> {
-    out: &'out mut OutputChannel,
-    stdin: std::io::Stdin,
+/// A channel that implements [`std::io::Write`], to make unbuffered writes to [`std::io::stderr`]
+/// if the error channel is connected to a terminal, for providing progress or error information.
+/// Broken pipes will also be ignored, thus the output written to this channel should be considered optional.
+pub struct ProgressChannel {
+    /// The channel writes will go to, if we are connected to a terminal.
+    inner: Option<std::io::Stderr>,
+}
+
+impl Default for ProgressChannel {
+    fn default() -> Self {
+        ProgressChannel {
+            inner: {
+                let stderr = std::io::stderr();
+                stderr.is_terminal().then_some(stderr)
+            },
+        }
+    }
+}
+
+impl std::io::Write for ProgressChannel {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Some(stderr) = self.inner.as_mut() {
+            stderr
+                .write(buf)
+                .or_else(|err| ignore_broken_pipe(err).map(|()| buf.len()))
+        } else {
+            // Pretend we wrote everything
+            Ok(buf.len())
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Some(stderr) = self.inner.as_mut() {
+            stderr.flush().or_else(ignore_broken_pipe)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl std::fmt::Write for ProgressChannel {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        use std::io::Write;
+        self.write_all(s.as_bytes()).map_err(|_| std::fmt::Error)
+    }
+}
+
+fn ignore_broken_pipe(err: std::io::Error) -> std::io::Result<()> {
+    if err.kind() == std::io::ErrorKind::BrokenPipe {
+        Ok(())
+    } else {
+        Err(err)
+    }
 }
 
 /// Conversions
@@ -31,6 +80,11 @@ impl OutputChannel {
     /// Provide a handle to receive a serde-serializable value to write to stdout.
     pub fn for_json(&mut self) -> Option<&mut Self> {
         matches!(self.format, OutputFormat::Json).then_some(self)
+    }
+
+    /// Get the output format setting.
+    pub fn format(&self) -> OutputFormat {
+        self.format
     }
 
     /// Before performing further output, obtain an input channel which always bypasses the pager when writing,
@@ -50,6 +104,11 @@ impl OutputChannel {
             return None;
         }
         Some(InputOutputChannel { out: self, stdin })
+    }
+
+    /// A convenience function to create a progress channel, which doesn't have any relationship with this instance.
+    pub fn progress_channel(&self) -> ProgressChannel {
+        ProgressChannel::default()
     }
 }
 
@@ -92,9 +151,16 @@ impl std::fmt::Write for OutputChannel {
     }
 }
 
+/// A channel to obtain various kinds of user input from a terminal, bypassing the pager.
+pub struct InputOutputChannel<'out> {
+    out: &'out mut OutputChannel,
+    stdin: std::io::Stdin,
+}
+
 impl std::fmt::Write for InputOutputChannel<'_> {
     fn write_str(&mut self, s: &str) -> std::fmt::Result {
         use std::io::Write;
+        // bypass the pager, fail on broken pipes (we are prompting)
         self.out
             .inner
             .write_all(s.as_bytes())
@@ -104,8 +170,9 @@ impl std::fmt::Write for InputOutputChannel<'_> {
 
 impl InputOutputChannel<'_> {
     /// Prompt a non-empty string from the user, or `None` if the input was empty.
-    pub fn prompt(&mut self, prompt: &str) -> anyhow::Result<Option<String>> {
+    pub fn prompt(&mut self, prompt: impl AsRef<str>) -> anyhow::Result<Option<String>> {
         use std::fmt::Write;
+        let prompt = prompt.as_ref();
         writeln!(self, "{}", prompt)?;
         write!(self, "> ")?;
         std::io::Write::flush(&mut self.out.inner)?;
@@ -117,6 +184,13 @@ impl InputOutputChannel<'_> {
             return Ok(None);
         }
         Ok(Some(input))
+    }
+}
+
+/// Be sure to flush everything written after the prompt as well - the output channel may be buffered.
+impl Drop for InputOutputChannel<'_> {
+    fn drop(&mut self) {
+        self.out.inner.flush().ok();
     }
 }
 

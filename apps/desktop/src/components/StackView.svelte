@@ -41,6 +41,7 @@
 		type SelectionId
 	} from '$lib/selection/key';
 	import { UNCOMMITTED_SERVICE } from '$lib/selection/uncommittedService.svelte';
+	import { SETTINGS } from '$lib/settings/userSettings';
 	import { STACK_SERVICE } from '$lib/stacks/stackService.svelte';
 	import { combineResults } from '$lib/state/helpers';
 	import { UI_STATE } from '$lib/state/uiState.svelte';
@@ -91,6 +92,7 @@
 	const uiState = inject(UI_STATE);
 	const hooksService = inject(HOOKS_SERVICE);
 	const idSelection = inject(FILE_SELECTION_MANAGER);
+	const userSettings = inject(SETTINGS);
 
 	// Component is read-only when stackId is undefined
 	const isReadOnly = $derived(!stableStackId);
@@ -565,7 +567,7 @@
 			</div>
 		{/snippet}
 		{#snippet children([branches, hasRulesToClear])}
-			<ConfigurableScrollableContainer childrenWrapHeight="100%">
+			<ConfigurableScrollableContainer childrenWrapHeight="100%" enableDragScroll>
 				<div
 					class="stack-view"
 					class:details-open={isDetailsViewOpen}
@@ -778,6 +780,7 @@
 														<ConfigurableScrollableContainer
 															zIndex="var(--z-lifted)"
 															bind:viewport={selectionPreviewScrollContainer}
+															enableDragScroll
 														>
 															{@render assignedChangePreview(assignedStackId)}
 														</ConfigurableScrollableContainer>
@@ -798,6 +801,7 @@
 																	linesRemoved={diffData?.type === 'Patch'
 																		? diffData.subject.linesRemoved
 																		: undefined}
+																	pathFirst={$userSettings.pathFirst}
 																/>
 															{/snippet}
 															{@render otherChangePreview(selectedFile)}
@@ -838,6 +842,7 @@
 													<ConfigurableScrollableContainer
 														zIndex="var(--z-lifted)"
 														bind:viewport={selectionPreviewScrollContainer}
+														enableDragScroll
 													>
 														{@render assignedChangePreview(assignedStackId)}
 													</ConfigurableScrollableContainer>
@@ -858,6 +863,7 @@
 																linesRemoved={diffData?.type === 'Patch'
 																	? diffData.subject.linesRemoved
 																	: undefined}
+																pathFirst={$userSettings.pathFirst}
 															/>
 														{/snippet}
 														{@render otherChangePreview(selectedFile)}

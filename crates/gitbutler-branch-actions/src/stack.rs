@@ -43,11 +43,11 @@ pub fn create_branch(ctx: &Context, stack_id: StackId, req: CreateSeriesRequest)
     if let Some(target_patch) = req.target_patch {
         stack.add_series(
             ctx,
-            StackBranch::new(target_patch, normalized_head_name, req.description, &repo)?,
+            StackBranch::new(target_patch, normalized_head_name, &repo)?,
             req.preceding_head,
         )
     } else {
-        stack.add_series_top_of_stack(ctx, normalized_head_name, req.description)
+        stack.add_series_top_of_stack(ctx, normalized_head_name)
     }
 }
 
@@ -56,8 +56,6 @@ pub fn create_branch(ctx: &Context, stack_id: StackId, req: CreateSeriesRequest)
 pub struct CreateSeriesRequest {
     /// Name of the new series
     pub name: String,
-    /// Description of the new series - can be markdown or anything really
-    pub description: Option<String>,
     /// The target patch (head) to create these series for. If let None, the new series will be at the top of the stack
     pub target_patch: Option<gitbutler_stack::CommitOrChangeId>,
     /// The name of the series that preceded the newly created series.
@@ -97,33 +95,6 @@ pub fn update_branch_name(
         branch_name,
         &PatchReferenceUpdate {
             name: Some(normalized_head_name),
-            ..Default::default()
-        },
-    )
-}
-
-/// Updates the description of an existing series in the stack.
-/// The description can be set to `None` to remove it.
-pub fn update_branch_description(
-    ctx: &Context,
-    stack_id: StackId,
-    branch_name: String,
-    description: Option<String>,
-) -> Result<()> {
-    let mut guard = ctx.exclusive_worktree_access();
-    ctx.verify(guard.write_permission())?;
-    let _ = ctx.create_snapshot(
-        SnapshotDetails::new(OperationKind::UpdateDependentBranchDescription),
-        guard.write_permission(),
-    );
-    ensure_open_workspace_mode(ctx).context("Requires an open workspace mode")?;
-    let mut stack = ctx.legacy_project.virtual_branches().get_stack(stack_id)?;
-    stack.update_branch(
-        ctx,
-        branch_name,
-        &PatchReferenceUpdate {
-            description: Some(description),
-            ..Default::default()
         },
     )
 }
@@ -172,9 +143,11 @@ pub fn push_stack(
 
     let git2_repo = ctx.git2_repo.get()?;
     let default_target = state.get_default_target()?;
-    let repo = ctx.open_repo()?;
+    let gix_repo = ctx.clone_repo_for_merging_non_persisting()?;
     let merge_base_id = git2_repo
-        .find_commit(git2_repo.merge_base(stack.head_oid(&repo)?.to_git2(), default_target.sha)?)?
+        .find_commit(
+            git2_repo.merge_base(stack.head_oid(&gix_repo)?.to_git2(), default_target.sha)?,
+        )?
         .id()
         .to_gix();
 
@@ -183,12 +156,12 @@ pub fn push_stack(
         &default_target.push_remote_name(),
         Some("push_stack".into()),
     )?;
-    let gix_repo = ctx.open_repo_for_merging_non_persisting()?;
     let cache = gix_repo.commit_graph_if_enabled()?;
     let stack_branches = stack.branches();
     let mut result = PushResult {
         remote: default_target.push_remote_name(),
         branch_to_remote: vec![],
+        branch_sha_updates: vec![],
     };
     let gerrit_mode = gix_repo
         .git_settings()?
@@ -224,6 +197,14 @@ pub fn push_stack(
         }
         drop(graph);
         let push_details = stack.push_details(ctx, branch.name().to_owned())?;
+
+        // Capture the SHA before push (remote ref if exists, otherwise zero)
+        let before_sha = git2_repo
+            .find_reference(&push_details.remote_refname.to_string())
+            .and_then(|r| r.peel_to_commit())
+            .map(|c| c.id())
+            .unwrap_or_else(|_| git2::Oid::zero());
+        let local_sha = push_details.head;
 
         if run_hooks {
             let remote_name = default_target.push_remote_name();
@@ -282,12 +263,19 @@ pub fn push_stack(
                 .iter()
                 .map(|id| id.to_gix())
                 .collect_vec();
-            but_gerrit::record_push_metadata(ctx, &gix_repo, stacks, push_output)?;
+            but_gerrit::record_push_metadata(ctx, stacks, push_output)?;
         }
 
         result.branch_to_remote.push((
             branch.name().to_owned(),
             push_details.remote_refname.to_owned().into(),
+        ));
+
+        // Record the SHA update (before -> after)
+        result.branch_sha_updates.push((
+            branch.name().to_owned(),
+            before_sha.to_string(),
+            local_sha.to_string(),
         ));
 
         if branch.name().eq(&branch_limit) {

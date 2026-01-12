@@ -3,7 +3,6 @@ use bstr::BStr;
 use but_core::ref_metadata::StackId;
 use but_ctx::Context;
 use colored::Colorize;
-use gitbutler_project::Project;
 mod amend;
 mod assign;
 mod commits;
@@ -19,46 +18,30 @@ use gitbutler_oplog::{
 use crate::{CliId, IdMap, utils::OutputChannel};
 
 pub(crate) fn handle(
-    project: &Project,
+    ctx: &mut Context,
     out: &mut OutputChannel,
     source_str: &str,
     target_str: &str,
 ) -> anyhow::Result<()> {
-    let ctx = &mut Context::new_from_legacy_project(project.clone())?;
-    let mut id_map = IdMap::new_from_context(ctx)?;
-    id_map.add_file_info_from_context(ctx)?;
+    let mut id_map = IdMap::new_from_context(ctx, None)?;
+    id_map.add_committed_file_info_from_context(ctx)?;
     let (sources, target) = ids(ctx, &id_map, source_str, target_str)?;
 
     for source in sources {
         match (source, &target) {
-            (
-                CliId::UncommittedFile {
-                    hunk_assignments, ..
-                },
-                CliId::Unassigned { .. },
-            ) => {
+            (CliId::Uncommitted(uncommitted_cli_id), CliId::Unassigned { .. }) => {
                 create_snapshot(ctx, OperationKind::MoveHunk);
-                assign::unassign_file(ctx, hunk_assignments, out)?;
+                assign::unassign_uncommitted(ctx, uncommitted_cli_id, out)?;
             }
-            (
-                CliId::UncommittedFile {
-                    hunk_assignments, ..
-                },
-                CliId::Commit(oid),
-            ) => {
+            (CliId::Uncommitted(uncommitted_cli_id), CliId::Commit { commit_id: oid, .. }) => {
                 create_snapshot(ctx, OperationKind::AmendCommit);
-                amend::file_to_commit(ctx, hunk_assignments, oid, out)?;
+                amend::uncommitted_to_commit(ctx, uncommitted_cli_id, oid, out)?;
             }
-            (
-                CliId::UncommittedFile {
-                    hunk_assignments, ..
-                },
-                CliId::Branch { name, .. },
-            ) => {
+            (CliId::Uncommitted(uncommitted_cli_id), CliId::Branch { name, .. }) => {
                 create_snapshot(ctx, OperationKind::MoveHunk);
-                assign::assign_file_to_branch(ctx, hunk_assignments, name, out)?;
+                assign::assign_uncommitted_to_branch(ctx, uncommitted_cli_id, name, out)?;
             }
-            (CliId::Unassigned { .. }, CliId::Commit(oid)) => {
+            (CliId::Unassigned { .. }, CliId::Commit { commit_id: oid, .. }) => {
                 create_snapshot(ctx, OperationKind::AmendCommit);
                 amend::assignments_to_commit(ctx, None, oid, out)?;
             }
@@ -66,15 +49,23 @@ pub(crate) fn handle(
                 create_snapshot(ctx, OperationKind::MoveHunk);
                 assign::assign_all(ctx, None, Some(to), out)?;
             }
-            (CliId::Commit(oid), CliId::Unassigned { .. }) => {
+            (CliId::Commit { commit_id: oid, .. }, CliId::Unassigned { .. }) => {
                 create_snapshot(ctx, OperationKind::UndoCommit);
                 undo::commit(ctx, &oid, out)?;
             }
-            (CliId::Commit(source), CliId::Commit(destination)) => {
+            (
+                CliId::Commit {
+                    commit_id: source, ..
+                },
+                CliId::Commit {
+                    commit_id: destination,
+                    ..
+                },
+            ) => {
                 create_snapshot(ctx, OperationKind::SquashCommit);
-                squash::commits(ctx, &source, destination, out)?;
+                squash::commits(ctx, &source, destination, None, out)?;
             }
-            (CliId::Commit(oid), CliId::Branch { name, .. }) => {
+            (CliId::Commit { commit_id: oid, .. }, CliId::Branch { name, .. }) => {
                 create_snapshot(ctx, OperationKind::MoveCommit);
                 move_commit::to_branch(ctx, &oid, name, out)?;
             }
@@ -82,7 +73,7 @@ pub(crate) fn handle(
                 create_snapshot(ctx, OperationKind::MoveHunk);
                 assign::assign_all(ctx, Some(&from), None, out)?;
             }
-            (CliId::Branch { name, .. }, CliId::Commit(oid)) => {
+            (CliId::Branch { name, .. }, CliId::Commit { commit_id: oid, .. }) => {
                 create_snapshot(ctx, OperationKind::AmendCommit);
                 amend::assignments_to_commit(ctx, Some(&name), oid, out)?;
             }
@@ -107,7 +98,7 @@ pub(crate) fn handle(
                     commit_id: commit_oid,
                     ..
                 },
-                CliId::Commit(oid),
+                CliId::Commit { commit_id: oid, .. },
             ) => {
                 create_snapshot(ctx, OperationKind::FileChanges);
                 commits::commited_file_to_another_commit(
@@ -128,24 +119,6 @@ pub(crate) fn handle(
             ) => {
                 create_snapshot(ctx, OperationKind::FileChanges);
                 commits::uncommit_file(ctx, path.as_ref(), commit_oid, None, out)?;
-            }
-            (
-                CliId::UncommittedHunk {
-                    hunk_header, path, ..
-                },
-                CliId::Unassigned { .. },
-            ) => {
-                create_snapshot(ctx, OperationKind::MoveHunk);
-                assign::unassign_hunk(ctx, hunk_header, path.as_ref(), out)?;
-            }
-            (
-                CliId::UncommittedHunk {
-                    hunk_header, path, ..
-                },
-                CliId::Branch { name, .. },
-            ) => {
-                create_snapshot(ctx, OperationKind::MoveHunk);
-                assign::assign_hunk_to_branch(ctx, hunk_header, path.as_ref(), name, out)?;
             }
             (source, target) => {
                 bail!(makes_no_sense_error(&source, target))
@@ -183,7 +156,7 @@ fn ids(
             let matches: Vec<String> = target_result
                 .iter()
                 .map(|id| match id {
-                    CliId::Commit(oid) => {
+                    CliId::Commit { commit_id: oid, .. } => {
                         format!(
                             "{} (commit {})",
                             id.to_short_string(),
@@ -232,7 +205,7 @@ pub(crate) fn parse_sources(
                 let matches: Vec<String> = source_result
                     .iter()
                     .map(|id| match id {
-                        CliId::Commit(oid) => {
+                        CliId::Commit { commit_id: oid, .. } => {
                             format!(
                                 "{} (commit {})",
                                 id.to_short_string(),
@@ -373,4 +346,274 @@ fn create_snapshot(ctx: &mut Context, operation: OperationKind) {
     let _snapshot = ctx
         .create_snapshot(SnapshotDetails::new(operation), guard.write_permission())
         .ok(); // Ignore errors for snapshot creation
+}
+
+/// Handler for `but uncommit <source>` - runs `but rub <source> zz`
+/// Validates that source is a commit or file-in-commit.
+pub(crate) fn handle_uncommit(
+    ctx: &mut Context,
+    out: &mut OutputChannel,
+    source_str: &str,
+) -> anyhow::Result<()> {
+    let id_map = IdMap::new_from_context(ctx, None)?;
+    let sources = parse_sources(ctx, &id_map, source_str)?;
+
+    // Validate that all sources are commits or committed files
+    for source in &sources {
+        match source {
+            CliId::Commit { .. } | CliId::CommittedFile { .. } => {
+                // Valid types for uncommit
+            }
+            _ => {
+                bail!(
+                    "Cannot uncommit {} - it is {}. Only commits and files-in-commits can be uncommitted.",
+                    source.to_short_string().blue().underline(),
+                    source.kind_for_humans().yellow()
+                );
+            }
+        }
+    }
+
+    // Call the main rub handler with "zz" as target
+    handle(ctx, out, source_str, "zz")
+}
+
+/// Handler for `but amend <file> <commit>` - runs `but rub <file> <commit>`
+/// Validates that file is an uncommitted file/hunk and commit is a commit.
+pub(crate) fn handle_amend(
+    ctx: &mut Context,
+    out: &mut OutputChannel,
+    file_str: &str,
+    commit_str: &str,
+) -> anyhow::Result<()> {
+    let id_map = IdMap::new_from_context(ctx, None)?;
+    let files = parse_sources(ctx, &id_map, file_str)?;
+    let commit_matches = id_map.resolve_entity_to_ids(commit_str)?;
+
+    // Validate that all files are uncommitted
+    for file in &files {
+        match file {
+            CliId::Uncommitted(_) => {
+                // Valid type for amend
+            }
+            _ => {
+                bail!(
+                    "Cannot amend {} - it is {}. Only uncommitted files and hunks can be amended.",
+                    file.to_short_string().blue().underline(),
+                    file.kind_for_humans().yellow()
+                );
+            }
+        }
+    }
+
+    // Validate that commit is a commit
+    if commit_matches.len() != 1 {
+        if commit_matches.is_empty() {
+            bail!("Commit '{}' not found.", commit_str);
+        } else {
+            bail!("Commit '{}' is ambiguous.", commit_str);
+        }
+    }
+
+    match &commit_matches[0] {
+        CliId::Commit { .. } => {
+            // Valid type for target
+        }
+        other => {
+            bail!(
+                "Cannot amend into {} - it is {}. Target must be a commit.",
+                other.to_short_string().blue().underline(),
+                other.kind_for_humans().yellow()
+            );
+        }
+    }
+
+    // Call the main rub handler
+    handle(ctx, out, file_str, commit_str)
+}
+
+/// Handler for `but stage <file_or_hunk> <branch>` - runs `but rub <file_or_hunk> <branch>`
+/// Validates that file_or_hunk is uncommitted and branch is a branch.
+pub(crate) fn handle_stage(
+    ctx: &mut Context,
+    out: &mut OutputChannel,
+    file_or_hunk_str: &str,
+    branch_str: &str,
+) -> anyhow::Result<()> {
+    let id_map = IdMap::new_from_context(ctx, None)?;
+    let files = parse_sources(ctx, &id_map, file_or_hunk_str)?;
+    let branch_matches = id_map.resolve_entity_to_ids(branch_str)?;
+
+    // Validate that all files are uncommitted
+    for file in &files {
+        match file {
+            CliId::Uncommitted(_) => {
+                // Valid type for stage
+            }
+            _ => {
+                bail!(
+                    "Cannot stage {} - it is {}. Only uncommitted files and hunks can be staged.",
+                    file.to_short_string().blue().underline(),
+                    file.kind_for_humans().yellow()
+                );
+            }
+        }
+    }
+
+    // Validate that branch is a branch
+    if branch_matches.len() != 1 {
+        if branch_matches.is_empty() {
+            bail!("Branch '{}' not found.", branch_str);
+        } else {
+            bail!("Branch '{}' is ambiguous.", branch_str);
+        }
+    }
+
+    match &branch_matches[0] {
+        CliId::Branch { .. } => {
+            // Valid type for target
+        }
+        other => {
+            bail!(
+                "Cannot stage to {} - it is {}. Target must be a branch.",
+                other.to_short_string().blue().underline(),
+                other.kind_for_humans().yellow()
+            );
+        }
+    }
+
+    // Call the main rub handler
+    handle(ctx, out, file_or_hunk_str, branch_str)
+}
+
+/// Handler for `but unstage <file_or_hunk> [branch]` - runs `but rub <file_or_hunk> zz`
+/// Validates that file_or_hunk is uncommitted. Optionally validates it's assigned to the specified branch.
+pub(crate) fn handle_unstage(
+    ctx: &mut Context,
+    out: &mut OutputChannel,
+    file_or_hunk_str: &str,
+    branch_str: Option<&str>,
+) -> anyhow::Result<()> {
+    let id_map = IdMap::new_from_context(ctx, None)?;
+    let files = parse_sources(ctx, &id_map, file_or_hunk_str)?;
+
+    // Validate that all files are uncommitted
+    for file in &files {
+        match file {
+            CliId::Uncommitted(_) => {
+                // Valid type for unstage
+            }
+            _ => {
+                bail!(
+                    "Cannot unstage {} - it is {}. Only uncommitted files and hunks can be unstaged.",
+                    file.to_short_string().blue().underline(),
+                    file.kind_for_humans().yellow()
+                );
+            }
+        }
+    }
+
+    // If a branch is specified, validate it exists (but we don't strictly require the file to be assigned to it)
+    if let Some(branch_name) = branch_str {
+        let branch_matches = id_map.resolve_entity_to_ids(branch_name)?;
+        if branch_matches.is_empty() {
+            bail!("Branch '{}' not found.", branch_name);
+        }
+        if branch_matches.len() > 1 {
+            bail!("Branch '{}' is ambiguous.", branch_name);
+        }
+        match &branch_matches[0] {
+            CliId::Branch { .. } => {
+                // Valid - branch exists
+            }
+            other => {
+                bail!(
+                    "Cannot unstage from {} - it is {}. Target must be a branch.",
+                    other.to_short_string().blue().underline(),
+                    other.kind_for_humans().yellow()
+                );
+            }
+        }
+    }
+
+    // Call the main rub handler with "zz" as target to unassign
+    handle(ctx, out, file_or_hunk_str, "zz")
+}
+
+/// Handler for `but squash <commit1> <commit2>` - runs `but rub <commit1> <commit2>`
+/// Validates that both arguments are commits.
+pub(crate) fn handle_squash(
+    ctx: &mut Context,
+    out: &mut OutputChannel,
+    commit1_str: &str,
+    commit2_str: &str,
+    drop_message: bool,
+) -> anyhow::Result<()> {
+    let id_map = IdMap::new_from_context(ctx, None)?;
+    let commit1_matches = id_map.resolve_entity_to_ids(commit1_str)?;
+    let commit2_matches = id_map.resolve_entity_to_ids(commit2_str)?;
+
+    // Validate that commit1 is a commit
+    if commit1_matches.len() != 1 {
+        if commit1_matches.is_empty() {
+            bail!("First commit '{}' not found.", commit1_str);
+        } else {
+            bail!("First commit '{}' is ambiguous.", commit1_str);
+        }
+    }
+
+    let commit1_oid = match &commit1_matches[0] {
+        CliId::Commit { commit_id, .. } => *commit_id,
+        other => {
+            bail!(
+                "Cannot squash {} - it is {}. First argument must be a commit.",
+                other.to_short_string().blue().underline(),
+                other.kind_for_humans().yellow()
+            );
+        }
+    };
+
+    // Validate that commit2 is a commit
+    if commit2_matches.len() != 1 {
+        if commit2_matches.is_empty() {
+            bail!("Second commit '{}' not found.", commit2_str);
+        } else {
+            bail!("Second commit '{}' is ambiguous.", commit2_str);
+        }
+    }
+
+    let commit2_oid = match &commit2_matches[0] {
+        CliId::Commit { commit_id, .. } => *commit_id,
+        other => {
+            bail!(
+                "Cannot squash into {} - it is {}. Second argument must be a commit.",
+                other.to_short_string().blue().underline(),
+                other.kind_for_humans().yellow()
+            );
+        }
+    };
+
+    // If drop_message is true, get the message from commit2
+    let custom_message = if drop_message {
+        let repo = ctx.repo.get()?;
+        let commit2 = repo.find_commit(commit2_oid)?;
+        let message_ref = commit2.message()?;
+        let full_message = if let Some(body) = message_ref.body {
+            format!("{}\n\n{}", message_ref.title, body)
+        } else {
+            message_ref.title.to_string()
+        };
+        Some(full_message)
+    } else {
+        None
+    };
+
+    // Call the squash::commits function directly with the custom message
+    squash::commits(
+        ctx,
+        &commit1_oid,
+        &commit2_oid,
+        custom_message.as_deref(),
+        out,
+    )
 }

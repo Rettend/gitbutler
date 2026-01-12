@@ -178,7 +178,7 @@ pub mod stacks {
     pub fn list(current_dir: &Path, use_json: bool, in_workspace: bool) -> anyhow::Result<()> {
         let project = project_from_path(current_dir)?;
         let ctx = Context::new_from_legacy_project_and_settings(&project, AppSettings::default());
-        let repo = ctx.open_repo_for_merging_non_persisting()?;
+        let repo = ctx.clone_repo_for_merging_non_persisting()?;
         let filter = if in_workspace {
             StacksFilter::InWorkspace
         } else {
@@ -202,7 +202,7 @@ pub mod stacks {
         let ctx = Context::new_from_legacy_project_and_settings(&project, AppSettings::default());
         let details = {
             let meta = ref_metadata_toml(&ctx.legacy_project)?;
-            let repo = ctx.open_repo_for_merging_non_persisting()?;
+            let repo = ctx.clone_repo_for_merging_non_persisting()?;
             but_workspace::legacy::stack_details_v3(id, &repo, &meta)
         }?;
         debug_print(details)
@@ -212,7 +212,7 @@ pub mod stacks {
         let project = project_from_path(current_dir)?;
         let ctx = Context::new_from_legacy_project_and_settings(&project, AppSettings::default());
         let meta = ref_metadata_toml(&ctx.legacy_project)?;
-        let repo = ctx.open_repo_for_merging_non_persisting()?;
+        let repo = ctx.clone_repo_for_merging_non_persisting()?;
         let ref_name = repo.find_reference(ref_name)?.name().to_owned();
 
         let details = { but_workspace::branch_details(&repo, ref_name.as_ref(), &meta) }?;
@@ -237,7 +237,6 @@ pub mod stacks {
         ctx: &Context,
         name: &str,
         remote: bool,
-        description: Option<&str>,
     ) -> anyhow::Result<ui::StackEntry> {
         let repo = ctx.repo.get()?;
         let remotes = repo.remote_names();
@@ -281,15 +280,6 @@ pub mod stacks {
             ctx.exclusive_worktree_access().write_permission(),
         )?;
 
-        if description.is_some() {
-            gitbutler_branch_actions::stack::update_branch_description(
-                ctx,
-                stack_entry.id,
-                name.to_string(),
-                description.map(ToOwned::to_owned),
-            )?;
-        }
-
         Ok(stack_entry.into())
     }
 
@@ -298,12 +288,10 @@ pub mod stacks {
         ctx: &Context,
         stack_id: StackId,
         name: &str,
-        description: Option<&str>,
         repo: &gix::Repository,
     ) -> anyhow::Result<ui::StackEntry> {
         let creation_request = gitbutler_branch_actions::stack::CreateSeriesRequest {
             name: name.to_string(),
-            description: None,
             target_patch: None,
             preceding_head: None,
         };
@@ -319,15 +307,6 @@ pub mod stacks {
             .into_iter()
             .find(|entry| entry.id == Some(stack_id))
             .ok_or_else(|| anyhow::anyhow!("Failed to find stack with ID: {stack_id}"))?;
-
-        if description.is_some() {
-            gitbutler_branch_actions::stack::update_branch_description(
-                ctx,
-                stack_entry.id.context("BUG(opt-stack-id)")?,
-                name.to_string(),
-                description.map(ToOwned::to_owned),
-            )?;
-        }
 
         Ok(stack_entry)
     }
@@ -393,7 +372,6 @@ pub mod stacks {
     pub fn create_branch(
         id: Option<StackId>,
         name: &str,
-        description: Option<&str>,
         current_dir: &Path,
         remote: bool,
         use_json: bool,
@@ -415,8 +393,8 @@ pub mod stacks {
         let repo = ctx.repo.get()?;
 
         let stack_entry = match id {
-            Some(id) => add_branch_to_stack(&ctx, id, name, description, &repo)?,
-            None => create_stack_with_branch(&ctx, name, remote, description)?,
+            Some(id) => add_branch_to_stack(&ctx, id, name, &repo)?,
+            None => create_stack_with_branch(&ctx, name, remote)?,
         };
 
         if use_json {
@@ -573,15 +551,17 @@ pub fn remove_reference(
 }
 
 pub fn apply(args: &super::Args, short_name: &str, order: Option<usize>) -> anyhow::Result<()> {
-    let (repo, project, graph, mut meta) =
-        repo_and_maybe_project_and_graph(args, RepositoryOpenMode::Merge)?;
+    let ctx = but_ctx::Context::discover(&args.current_dir)?;
+    let mut guard = ctx.exclusive_worktree_access();
+    let (repo, mut meta, graph) =
+        ctx.graph_and_meta_mut_and_repo_from_head(guard.write_permission())?;
     let branch = repo.find_reference(short_name)?;
     let ws = graph.to_workspace()?;
     let apply_outcome = but_workspace::branch::apply(
         branch.name(),
         &ws,
         &repo,
-        &mut *meta,
+        &mut meta,
         but_workspace::branch::apply::Options {
             workspace_merge: WorkspaceMerge::AlwaysMerge,
             on_workspace_conflict: OnWorkspaceMergeConflict::MaterializeAndReportConflictingStacks,
@@ -592,10 +572,6 @@ pub fn apply(args: &super::Args, short_name: &str, order: Option<usize>) -> anyh
         },
     )?;
 
-    if project.is_some() {
-        // write metadata if there are projects - this is a special case while we use vb.toml.
-        ManuallyDrop::into_inner(meta);
-    }
     debug_print(apply_outcome)
 }
 
