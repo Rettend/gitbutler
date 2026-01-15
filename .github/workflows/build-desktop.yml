@@ -83,7 +83,7 @@ jobs:
         with:
           name: gitbutler-windows-${{ github.event.inputs.channel }}-${{ github.run_number }}
           path: |
-            target/release/bundle/msi/*.msi
+            target/tauri/release/bundle/msi/*.msi
             target/release/gitbutler-git-askpass.exe
           if-no-files-found: warn
           retention-days: 7
