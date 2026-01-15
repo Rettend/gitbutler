@@ -10,6 +10,10 @@ export type CodeEditorSettings = {
 	displayName: string;
 };
 
+export type EnabledCodeEditor = CodeEditorSettings & {
+	enabled: boolean;
+};
+
 export interface Settings {
 	aiSummariesEnabled?: boolean;
 	bottomPanelExpanded: boolean;
@@ -30,10 +34,28 @@ export interface Settings {
 	inlineUnifiedDiffs: boolean;
 	diffContrast: 'light' | 'medium' | 'strong';
 	colorBlindFriendly: boolean;
+	/** @deprecated Use codeEditors instead */
 	defaultCodeEditor: CodeEditorSettings;
+	codeEditors: EnabledCodeEditor[];
 	defaultFileListMode: 'tree' | 'list';
 	pathFirst: boolean;
 }
+
+export const ALL_CODE_EDITORS: CodeEditorSettings[] = [
+	{ schemeIdentifer: 'vscode', displayName: 'VSCode' },
+	{ schemeIdentifer: 'vscode-insiders', displayName: 'VSCode Insiders' },
+	{ schemeIdentifer: 'cursor', displayName: 'Cursor' },
+	{ schemeIdentifer: 'antigravity', displayName: 'Antigravity' },
+	{ schemeIdentifer: 'windsurf', displayName: 'Windsurf' },
+	{ schemeIdentifer: 'zed', displayName: 'Zed' },
+	{ schemeIdentifer: 'vscodium', displayName: 'VSCodium' },
+	{ schemeIdentifer: 'trae', displayName: 'Trae' }
+];
+
+const defaultCodeEditors: EnabledCodeEditor[] = ALL_CODE_EDITORS.map((editor) => ({
+	...editor,
+	enabled: editor.schemeIdentifer === 'vscode'
+}));
 
 const defaults: Settings = {
 	aiSummariesEnabled: false,
@@ -55,6 +77,7 @@ const defaults: Settings = {
 	diffContrast: 'light',
 	colorBlindFriendly: false,
 	defaultCodeEditor: { schemeIdentifer: 'vscode', displayName: 'VSCode' },
+	codeEditors: defaultCodeEditors,
 	defaultFileListMode: 'list',
 	pathFirst: true
 };
@@ -67,6 +90,25 @@ export function loadUserSettings(): Writable<Settings> {
 		obj = {};
 	}
 
+	// if user has old defaultCodeEditor but no codeEditors, create codeEditors with the old default editor enabled
+	if (obj.defaultCodeEditor && !obj.codeEditors) {
+		const oldEditor = obj.defaultCodeEditor;
+		obj.codeEditors = ALL_CODE_EDITORS.map((editor) => ({
+			...editor,
+			enabled: editor.schemeIdentifer === oldEditor.schemeIdentifer
+		}));
+	}
+
+	// Ensure all available editors exist in user's codeEditors list (for new editors added later)
+	if (obj.codeEditors) {
+		const existingIds = new Set(obj.codeEditors.map((e: EnabledCodeEditor) => e.schemeIdentifer));
+		for (const editor of ALL_CODE_EDITORS) {
+			if (!existingIds.has(editor.schemeIdentifer)) {
+				obj.codeEditors.push({ ...editor, enabled: false });
+			}
+		}
+	}
+
 	const store = writable<Settings>({ ...defaults, ...obj });
 	return {
 		subscribe: store.subscribe,
@@ -76,4 +118,8 @@ export function loadUserSettings(): Writable<Settings> {
 			localStorage.setItem(SETTINGS_KEY, JSON.stringify(get(store)));
 		}
 	};
+}
+
+export function getEnabledEditors(settings: Settings): EnabledCodeEditor[] {
+	return settings.codeEditors.filter((e) => e.enabled);
 }

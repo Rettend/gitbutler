@@ -7,17 +7,16 @@
 	import { SETTINGS_SERVICE } from '$lib/config/appSettingsV2';
 	import { showError } from '$lib/notifications/toasts';
 	import { PROJECTS_SERVICE } from '$lib/project/projectsService';
-	import { SETTINGS, type CodeEditorSettings } from '$lib/settings/userSettings';
+	import { SETTINGS } from '$lib/settings/userSettings';
 	import { UPDATER_SERVICE } from '$lib/updater/updater';
 	import { USER_SERVICE } from '$lib/user/userService';
 	import { inject } from '@gitbutler/core/context';
 	import {
 		Button,
 		CardGroup,
+		EditorLogo,
 		Modal,
 		ProfilePictureUpload,
-		Select,
-		SelectItem,
 		Spacer,
 		Textbox,
 		Toggle,
@@ -51,20 +50,34 @@
 	let deleteConfirmationModal: ReturnType<typeof Modal> | undefined = $state();
 
 	const userSettings = inject(SETTINGS);
-	const editorOptions: CodeEditorSettings[] = [
-		{ schemeIdentifer: 'antigravity', displayName: 'Antigravity' },
-		{ schemeIdentifer: 'vscodium', displayName: 'VSCodium' },
-		{ schemeIdentifer: 'vscode', displayName: 'VSCode' },
-		{ schemeIdentifer: 'vscode-insiders', displayName: 'VSCode Insiders' },
-		{ schemeIdentifer: 'windsurf', displayName: 'Windsurf' },
-		{ schemeIdentifer: 'zed', displayName: 'Zed' },
-		{ schemeIdentifer: 'cursor', displayName: 'Cursor' },
-		{ schemeIdentifer: 'trae', displayName: 'Trae' }
-	];
-	const editorOptionsForSelect = editorOptions.map((option) => ({
-		label: option.displayName,
-		value: option.schemeIdentifer
-	}));
+	function toggleEditor(schemeId: string) {
+		userSettings.update((s) => ({
+			...s,
+			codeEditors: s.codeEditors.map((e) =>
+				e.schemeIdentifer === schemeId ? { ...e, enabled: !e.enabled } : e
+			)
+		}));
+	}
+
+	function moveEditor(schemeId: string, direction: 'up' | 'down') {
+		userSettings.update((s) => {
+			const editors = [...s.codeEditors];
+			const idx = editors.findIndex((e) => e.schemeIdentifer === schemeId);
+			if (idx === -1) return s;
+
+			const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+			if (newIdx < 0 || newIdx >= editors.length) return s;
+
+			const currentEditor = editors[idx];
+			const targetEditor = editors[newIdx];
+			if (!currentEditor || !targetEditor) return s;
+
+			editors[idx] = targetEditor;
+			editors[newIdx] = currentEditor;
+
+			return { ...s, codeEditors: editors };
+		});
+	}
 
 	$effect(() => {
 		if ($user && !loaded) {
@@ -183,31 +196,51 @@
 <Spacer />
 
 <CardGroup>
-	<CardGroup.Item alignment="center">
+	<CardGroup.Item>
 		{#snippet title()}
-			Default code editor
+			Code editors
 		{/snippet}
-		{#snippet actions()}
-			<Select
-				value={$userSettings.defaultCodeEditor.schemeIdentifer}
-				options={editorOptionsForSelect}
-				onselect={(value) => {
-					const selected = editorOptions.find((option) => option.schemeIdentifer === value);
-					if (selected) {
-						userSettings.update((s) => ({ ...s, defaultCodeEditor: selected }));
-					}
-				}}
-			>
-				{#snippet itemSnippet({ item, highlighted })}
-					<SelectItem
-						selected={item.value === $userSettings.defaultCodeEditor.schemeIdentifer}
-						{highlighted}
+		{#snippet caption()}
+			Select which editors to use with <code class="code-string">Open in Editor</code>.
+		{/snippet}
+
+		<div class="editors-grid">
+			{#each $userSettings.codeEditors as editor, idx (editor.schemeIdentifer)}
+				{@const isFirst = idx === 0}
+				{@const isLast = idx === $userSettings.codeEditors.length - 1}
+				<div class="editor-item">
+					<button
+						type="button"
+						class="editor-card"
+						class:editor-card-enabled={editor.enabled}
+						onclick={() => toggleEditor(editor.schemeIdentifer)}
 					>
-						{item.label}
-					</SelectItem>
-				{/snippet}
-			</Select>
-		{/snippet}
+						<div class="editor-card-logo">
+							<EditorLogo name={editor.schemeIdentifer} size="large" />
+						</div>
+						<span class="editor-card-name">{editor.displayName}</span>
+					</button>
+					<div class="editor-item-reorder">
+						<Button
+							size="tag"
+							kind="outline"
+							icon="chevron-left"
+							disabled={isFirst}
+							onclick={() => moveEditor(editor.schemeIdentifer, 'up')}
+							tooltip="Move left"
+						/>
+						<Button
+							size="tag"
+							kind="outline"
+							icon="chevron-right"
+							disabled={isLast}
+							onclick={() => moveEditor(editor.schemeIdentifer, 'down')}
+							tooltip="Move right"
+						/>
+					</div>
+				</div>
+			{/each}
+		</div>
 	</CardGroup.Item>
 </CardGroup>
 
@@ -335,5 +368,75 @@
 		flex-direction: column;
 		width: 100%;
 		gap: 12px;
+	}
+
+	.editors-grid {
+		display: flex;
+		flex-wrap: wrap;
+		margin-top: 8px;
+		gap: 12px;
+	}
+
+	.editor-item {
+		display: flex;
+		flex-direction: column;
+		width: 90px;
+		gap: 8px;
+	}
+
+	.editor-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: flex-start;
+		height: 110px;
+		padding: 12px 4px;
+		overflow: hidden;
+		gap: 8px;
+		border: 1px solid var(--clr-border-2);
+		border-radius: var(--radius-m);
+		background: var(--clr-bg-2);
+		color: var(--clr-text-1);
+		cursor: pointer;
+		opacity: 0.6;
+		transition:
+			opacity var(--transition-fast),
+			border-color var(--transition-fast),
+			background-color var(--transition-fast);
+
+		&:hover {
+			background: var(--hover-bg-2);
+		}
+	}
+
+	.editor-card-enabled {
+		border-color: var(--clr-theme-pop-element);
+		background: var(--clr-bg-1);
+		opacity: 1;
+
+		&:hover {
+			background: var(--clr-bg-1);
+		}
+	}
+
+	.editor-card-logo {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.editor-card-name {
+		font-weight: 500;
+		font-size: 11px;
+		line-height: 1.3;
+		text-align: center;
+		word-break: break-word;
+	}
+
+	.editor-item-reorder {
+		display: flex;
+		justify-content: center;
+		gap: 4px;
 	}
 </style>

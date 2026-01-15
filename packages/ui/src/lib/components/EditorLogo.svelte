@@ -1,14 +1,17 @@
 <script lang="ts">
+	import antigravityLogoSvg from '$lib/assets/antigravity.svg?raw';
 	import claudeLogoSvg from '$lib/assets/claude.svg?raw';
 	import cursorLogoSvg from '$lib/assets/cursor.svg?raw';
 	import vsCodeInsidersLogoSvg from '$lib/assets/vscode-insiders.svg?raw';
 	import vsCodeLogoSvg from '$lib/assets/vscode.svg?raw';
 
 	type Props = {
-		name: 'vscode' | 'cursor' | 'claude' | (string & {});
+		name: 'antigravity' | 'vscode' | 'cursor' | 'claude' | (string & {});
+		size?: 'default' | 'large';
 	};
 
-	const { name }: Props = $props();
+	const { name, size = 'default' }: Props = $props();
+	const isAntigravity = $derived(name.toLowerCase().includes('antigravity'));
 	const isCursor = $derived(name.toLowerCase().includes('cursor'));
 	const vsCodeKeywords = ['vscode', 'visual studio code'];
 	const isVsCode = $derived(vsCodeKeywords.some((keyword) => name.toLowerCase().includes(keyword)));
@@ -16,8 +19,10 @@
 	const isClaude = $derived(name.toLowerCase().includes('claude'));
 </script>
 
-<div class="editor-logo">
-	{#if isCursor}
+<div class="editor-logo" class:large={size === 'large'}>
+	{#if isAntigravity}
+		{@html antigravityLogoSvg}
+	{:else if isCursor}
 		{@html cursorLogoSvg}
 	{:else if isVsCodeInsiders}
 		{@html vsCodeInsidersLogoSvg}
@@ -39,5 +44,17 @@
 		border: 1px solid var(--clr-border-2);
 		border-radius: 8px;
 		background-color: var(--clr-core-gray-10);
+
+		& :global(svg) {
+			width: 100%;
+			height: 100%;
+		}
+	}
+
+	.editor-logo.large {
+		width: 56px;
+		height: 56px;
+		padding: 8px;
+		border-radius: 12px;
 	}
 </style>
