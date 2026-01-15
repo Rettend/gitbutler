@@ -2,7 +2,7 @@
 	"productName": "GitButler Dev",
 	"identifier": "com.gitbutler.app.dev",
 	"build": {
-		"beforeDevCommand": "pnpm dev:internal-tauri",
+		"beforeDevCommand": "pnpm --filter @gitbutler/desktop dev",
 		"beforeBuildCommand": "[ \"$CI\" = \"true\" ] || pnpm build:desktop -- --mode development",
 		"frontendDist": "../../apps/desktop/build",
 		"devUrl": "http://localhost:1420"
