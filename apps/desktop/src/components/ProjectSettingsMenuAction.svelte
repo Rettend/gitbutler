@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import EditorPickerMenu from '$components/EditorPickerMenu.svelte';
 	import { BASE_BRANCH_SERVICE } from '$lib/baseBranch/baseBranchService.svelte';
 	import { FILE_SERVICE } from '$lib/files/fileService';
 	import { DEFAULT_FORGE_FACTORY } from '$lib/forge/forgeFactory.svelte';
@@ -7,10 +8,11 @@
 	import { PROJECTS_SERVICE } from '$lib/project/projectsService';
 	import { historyPath } from '$lib/routes/routes.svelte';
 	import { useSettingsModal } from '$lib/settings/settingsModal.svelte';
-	import { SETTINGS } from '$lib/settings/userSettings';
+	import { getEnabledEditors, SETTINGS, type EnabledCodeEditor } from '$lib/settings/userSettings';
 	import { SHORTCUT_SERVICE } from '$lib/shortcuts/shortcutService';
 	import { getEditorUri, URL_SERVICE } from '$lib/utils/url';
 	import { inject } from '@gitbutler/core/context';
+	import { chipToasts } from '@gitbutler/ui';
 	import { mergeUnlisten } from '@gitbutler/ui/utils/mergeUnlisten';
 
 	const { projectId }: { projectId: string } = $props();
@@ -38,6 +40,38 @@
 		projectQuery.result.status === 'fulfilled' ? projectQuery.result.data : undefined
 	);
 
+	let editorPickerMenu: ReturnType<typeof EditorPickerMenu> | undefined = $state();
+
+	async function openInEditor(editor: EnabledCodeEditor) {
+		const project = await projectsService.fetchProject(projectId);
+		if (!project) {
+			throw new Error(`Project not found: ${projectId}`);
+		}
+		urlService.openExternalUrl(
+			getEditorUri({
+				schemeId: editor.schemeIdentifer,
+				path: [vscodePath(project.path)],
+				searchParams: { windowId: '_blank' }
+			})
+		);
+	}
+
+	function handleOpenInEditor() {
+		const enabledEditors = getEnabledEditors($userSettings);
+		const firstEditor = enabledEditors[0];
+
+		if (!firstEditor) {
+			chipToasts.error('No code editors enabled. Configure editors in Settings > General.');
+			return;
+		}
+
+		if (enabledEditors.length === 1) {
+			openInEditor(firstEditor);
+		} else {
+			editorPickerMenu?.open();
+		}
+	}
+
 	$effect(() =>
 		mergeUnlisten(
 			shortcutService.on('project-settings', () => {
@@ -46,19 +80,7 @@
 			shortcutService.on('history', () => {
 				goto(historyPath(projectId));
 			}),
-			shortcutService.on('open-in-vscode', async () => {
-				const project = await projectsService.fetchProject(projectId);
-				if (!project) {
-					throw new Error(`Project not found: ${projectId}`);
-				}
-				urlService.openExternalUrl(
-					getEditorUri({
-						schemeId: $userSettings.defaultCodeEditor.schemeIdentifer,
-						path: [vscodePath(project.path)],
-						searchParams: { windowId: '_blank' }
-					})
-				);
-			}),
+			shortcutService.on('open-in-vscode', handleOpenInEditor),
 			shortcutService.on('show-in-finder', async () => {
 				const project = await projectsService.fetchProject(projectId);
 				if (!project) {
@@ -105,3 +127,5 @@
 		)
 	);
 </script>
+
+<EditorPickerMenu bind:this={editorPickerMenu} onselect={openInEditor} />
