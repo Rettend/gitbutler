@@ -1,13 +1,14 @@
 <script lang="ts">
-	import { getFileIcon, type Theme } from '$components/file/getFileIcon';
+	import { getFolderIcon, type Theme } from '$components/file/getFolderIcon';
 	import { pxToRem } from '$lib/utils/pxToRem';
 
 	interface Props {
-		fileName: string;
+		folderName: string;
+		isOpen?: boolean;
 		size?: number;
 	}
 
-	const { fileName, size = 16 }: Props = $props();
+	const { folderName, isOpen = false, size = 16 }: Props = $props();
 
 	function getTheme(): Theme {
 		if (typeof document !== 'undefined') {
@@ -38,15 +39,15 @@
 
 <img
 	draggable="false"
-	src={getFileIcon(fileName, theme)}
+	src={getFolderIcon(folderName, isOpen, theme)}
 	alt=""
-	class="file-icon"
-	style:--file-icon-size="{pxToRem(size)}rem"
+	class="folder-icon"
+	style:--folder-icon-size="{pxToRem(size)}rem"
 />
 
 <style lang="postcss">
-	.file-icon {
-		width: var(--file-icon-size);
-		height: var(--file-icon-size);
+	.folder-icon {
+		width: var(--folder-icon-size);
+		height: var(--folder-icon-size);
 	}
 </style>
