@@ -1,0 +1,97 @@
+name: 'Build Desktop (Fork)'
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        type: choice
+        required: true
+        description: Build channel
+        default: nightly
+        options:
+          - nightly
+          - release
+
+env:
+  RUSTUP_TOOLCHAIN: stable
+
+jobs:
+  build-sveltekit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init Node Environment
+        uses: ./.github/actions/init-env-node
+
+      - name: Build SvelteKit
+        run: pnpm build:desktop -- --mode nightly
+
+      - uses: actions/upload-artifact@v4
+        name: Upload SvelteKit build output
+        with:
+          name: sveltekit-build
+          path: ./apps/desktop/build/
+          retention-days: 1
+          if-no-files-found: error
+
+  build-tauri-windows:
+    needs: build-sveltekit
+    runs-on: windows-latest
+    env:
+      CARGO_TERM_COLOR: always
+
+    steps:
+      # Fix perl installation issues on Windows
+      - name: perl -V (before)
+        run: which perl && perl -V
+
+      - name: Set git to use LF
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+
+      - name: Set Perl environment variables
+        run: |
+          echo "PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          echo "OPENSSL_SRC_PERL=$((where.exe perl)[0])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - uses: actions/checkout@v4
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: cargo-build-windows-${{ github.event.inputs.channel }}
+
+      - name: Init Node Environment
+        uses: ./.github/actions/init-env-node
+
+      - uses: actions/download-artifact@v4
+        name: Download SvelteKit build output
+        with:
+          name: sveltekit-build
+          path: ./apps/desktop/build/
+
+      - name: Build Tauri app
+        shell: bash
+        run: |
+          CHANNEL="${{ github.event.inputs.channel }}"
+          CONFIG_PATH="crates/gitbutler-tauri/tauri.conf.${CHANNEL}.json"
+
+          echo "Building with channel: $CHANNEL"
+          echo "Using config: $CONFIG_PATH"
+
+          # Build with devtools feature for debugging
+          pnpm tauri build \
+            --features "windows,devtools" \
+            --config "$CONFIG_PATH"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitbutler-windows-${{ github.event.inputs.channel }}-${{ github.run_number }}
+          path: |
+            target/release/bundle/msi/*.msi
+            target/release/gitbutler-git-askpass.exe
+          if-no-files-found: warn
+          retention-days: 7
