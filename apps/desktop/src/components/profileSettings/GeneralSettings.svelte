@@ -10,6 +10,7 @@
 	import { SETTINGS } from '$lib/settings/userSettings';
 	import { UPDATER_SERVICE } from '$lib/updater/updater';
 	import { USER_SERVICE } from '$lib/user/userService';
+	import { effectiveTheme } from '$lib/utils/theme';
 	import { inject } from '@gitbutler/core/context';
 	import {
 		Button,
@@ -216,7 +217,7 @@
 						onclick={() => toggleEditor(editor.schemeIdentifer)}
 					>
 						<div class="editor-card-logo">
-							<EditorLogo name={editor.schemeIdentifer} size="large" />
+							<EditorLogo name={editor.schemeIdentifer} size="large" theme={$effectiveTheme} />
 						</div>
 						<span class="editor-card-name">{editor.displayName}</span>
 					</button>

@@ -46,6 +46,7 @@ export const ALL_CODE_EDITORS: CodeEditorSettings[] = [
 	{ schemeIdentifer: 'vscode-insiders', displayName: 'VSCode Insiders' },
 	{ schemeIdentifer: 'cursor', displayName: 'Cursor' },
 	{ schemeIdentifer: 'antigravity', displayName: 'Antigravity' },
+	{ schemeIdentifer: 'opencode', displayName: 'OpenCode' },
 	{ schemeIdentifer: 'windsurf', displayName: 'Windsurf' },
 	{ schemeIdentifer: 'zed', displayName: 'Zed' },
 	{ schemeIdentifer: 'vscodium', displayName: 'VSCodium' },
