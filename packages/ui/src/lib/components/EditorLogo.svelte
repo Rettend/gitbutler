@@ -1,7 +1,8 @@
 <script lang="ts">
 	import antigravityLogoSvg from '$lib/assets/antigravity.svg?raw';
 	import claudeLogoSvg from '$lib/assets/claude.svg?raw';
-	import cursorLogoSvg from '$lib/assets/cursor.svg?raw';
+	import cursorDarkLogoSvg from '$lib/assets/cursor-dark.svg?raw';
+	import cursorLightLogoSvg from '$lib/assets/cursor-light.svg?raw';
 	import opencodeDarkLogoSvg from '$lib/assets/opencode-dark.svg?raw';
 	import opencodeLightLogoSvg from '$lib/assets/opencode-light.svg?raw';
 	import vsCodeInsidersLogoSvg from '$lib/assets/vscode-insiders.svg?raw';
@@ -23,13 +24,13 @@
 	const isClaude = $derived(name.toLowerCase().includes('claude'));
 </script>
 
-<div class="editor-logo" class:large={size === 'large'}>
+<div class="editor-logo" class:large={size === 'large'} class:light={theme === 'light'}>
 	{#if isAntigravity}
 		{@html antigravityLogoSvg}
 	{:else if isOpenCode}
 		{@html theme === 'light' ? opencodeLightLogoSvg : opencodeDarkLogoSvg}
 	{:else if isCursor}
-		{@html cursorLogoSvg}
+		{@html theme === 'light' ? cursorLightLogoSvg : cursorDarkLogoSvg}
 	{:else if isVsCodeInsiders}
 		{@html vsCodeInsidersLogoSvg}
 	{:else if isVsCode}
@@ -62,5 +63,10 @@
 		height: 56px;
 		padding: 8px;
 		border-radius: 12px;
+	}
+
+	.editor-logo.light {
+		border-color: var(--clr-border-1);
+		background-color: var(--clr-bg-2);
 	}
 </style>
