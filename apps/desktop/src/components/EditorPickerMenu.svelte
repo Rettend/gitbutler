@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { getEnabledEditors, type EnabledCodeEditor, SETTINGS } from '$lib/settings/userSettings';
+	import { effectiveTheme } from '$lib/utils/theme';
 	import { inject } from '@gitbutler/core/context';
 	import { ContextMenu, ContextMenuSection, EditorLogo } from '@gitbutler/ui';
 
@@ -61,7 +62,7 @@
 		{#each enabledEditors as editor, idx}
 			<button type="button" class="editor-picker-item" onclick={() => handleSelect(editor)}>
 				<span class="editor-picker-key">{idx + 1}</span>
-				<EditorLogo name={editor.schemeIdentifer} />
+				<EditorLogo name={editor.schemeIdentifer} theme={$effectiveTheme} />
 				<span class="editor-picker-label">{editor.displayName}</span>
 			</button>
 		{/each}

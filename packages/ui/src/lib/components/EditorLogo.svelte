@@ -2,17 +2,21 @@
 	import antigravityLogoSvg from '$lib/assets/antigravity.svg?raw';
 	import claudeLogoSvg from '$lib/assets/claude.svg?raw';
 	import cursorLogoSvg from '$lib/assets/cursor.svg?raw';
+	import opencodeDarkLogoSvg from '$lib/assets/opencode-dark.svg?raw';
+	import opencodeLightLogoSvg from '$lib/assets/opencode-light.svg?raw';
 	import vsCodeInsidersLogoSvg from '$lib/assets/vscode-insiders.svg?raw';
 	import vsCodeLogoSvg from '$lib/assets/vscode.svg?raw';
 
 	type Props = {
-		name: 'antigravity' | 'vscode' | 'cursor' | 'claude' | (string & {});
+		name: 'antigravity' | 'vscode' | 'cursor' | 'claude' | 'opencode' | (string & {});
 		size?: 'default' | 'large';
+		theme?: 'light' | 'dark';
 	};
 
-	const { name, size = 'default' }: Props = $props();
+	const { name, size = 'default', theme = 'dark' }: Props = $props();
 	const isAntigravity = $derived(name.toLowerCase().includes('antigravity'));
 	const isCursor = $derived(name.toLowerCase().includes('cursor'));
+	const isOpenCode = $derived(name.toLowerCase().includes('opencode'));
 	const vsCodeKeywords = ['vscode', 'visual studio code'];
 	const isVsCode = $derived(vsCodeKeywords.some((keyword) => name.toLowerCase().includes(keyword)));
 	const isVsCodeInsiders = $derived(isVsCode && name.toLowerCase().includes('insiders'));
@@ -22,6 +26,8 @@
 <div class="editor-logo" class:large={size === 'large'}>
 	{#if isAntigravity}
 		{@html antigravityLogoSvg}
+	{:else if isOpenCode}
+		{@html theme === 'light' ? opencodeLightLogoSvg : opencodeDarkLogoSvg}
 	{:else if isCursor}
 		{@html cursorLogoSvg}
 	{:else if isVsCodeInsiders}
